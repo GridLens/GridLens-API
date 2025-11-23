@@ -18,7 +18,9 @@ const meters = [
     type: "electric",
     lastReadKwh: 12450,
     lastReadAt: "2025-11-20T14:10:00Z",
-    location: { city: "Holly Springs", state: "MS" }
+    location: { city: "Holly Springs", state: "MS" },
+    multiplier: 1,
+    notes: ""
   },
   {
     id: "MTR-1002",
@@ -26,7 +28,9 @@ const meters = [
     type: "water",
     lastReadKwh: null,
     lastReadAt: "2025-11-21T08:22:00Z",
-    location: { city: "Byhalia", state: "MS" }
+    location: { city: "Byhalia", state: "MS" },
+    multiplier: 1,
+    notes: ""
   },
   {
     id: "MTR-1003",
@@ -34,7 +38,9 @@ const meters = [
     type: "electric",
     lastReadKwh: 0,
     lastReadAt: "2025-11-01T02:00:00Z",
-    location: { city: "Byhalia", state: "MS" }
+    location: { city: "Byhalia", state: "MS" },
+    multiplier: 1,
+    notes: "Disconnected for non-payment"
   }
 ];
 
@@ -64,37 +70,264 @@ const usageReads = [
 ];
 
 // ----------------------------------
-// Simple "engines" (MVP placeholders)
+// Billing Integrity Engine (v2 MVP)
+// Uses BOTH usageReads + amiEvents
 // ----------------------------------
-function buildBillingFlags(meter, reads) {
+function buildBillingFlagsV2(meter, reads, events) {
   const flags = [];
+  const now = new Date();
 
-  // Missing reads (no usage in 24h)
+  // ---- Guardrails ----
   if (!reads || reads.length === 0) {
-    flags.push({ code: "missing_reads", level: "high", msg: "No reads in window" });
+    flags.push({
+      code: "missing_reads",
+      level: "high",
+      msg: "No usage reads found in window",
+    });
     return flags;
   }
 
-  // Zero-use
-  const zeroCount = reads.filter(r => (r.kwh ?? r.gallons) === 0).length;
-  if (zeroCount >= Math.ceil(reads.length * 0.8)) {
-    flags.push({ code: "zero_use", level: "medium", msg: "Sustained zero usage" });
+  // Normalize numeric values
+  const values = reads.map(r => r.kwh ?? r.gallons).filter(v => typeof v === "number");
+  if (values.length === 0) {
+    flags.push({
+      code: "missing_reads",
+      level: "high",
+      msg: "Reads exist but no numeric usage values",
+    });
+    return flags;
   }
 
-  // Impossible spike (very naive rule for now)
-  const values = reads.map(r => r.kwh ?? r.gallons);
-  const max = Math.max(...values);
   const avg = values.reduce((a,b)=>a+b,0) / values.length;
-  if (max > avg * 5) {
-    flags.push({ code: "impossible_spike", level: "high", msg: "Usage spike exceeds threshold" });
+  const max = Math.max(...values);
+  const min = Math.min(...values);
+
+  // ---- 1) Zero-use / stuck trend ----
+  const zeroCount = values.filter(v => v === 0).length;
+  if (zeroCount >= Math.ceil(values.length * 0.8)) {
+    flags.push({
+      code: "zero_use",
+      level: "medium",
+      msg: "Sustained zero usage (possible stuck / vacant / bypass)",
+      stats: { zeroCount, total: values.length }
+    });
   }
 
-  // Inactive meter but still reading
+  // ---- 2) Impossible spike ----
+  if (avg > 0 && max > avg * 5) {
+    flags.push({
+      code: "impossible_spike",
+      level: "high",
+      msg: "Usage spike exceeds threshold vs. baseline",
+      stats: { avg, max }
+    });
+  }
+
+  // ---- 3) Negative / rollback / bad read ----
+  const hasNegative = values.some(v => v < 0);
+  if (hasNegative) {
+    flags.push({
+      code: "negative_reads",
+      level: "high",
+      msg: "Negative usage detected (rollback / register error)",
+    });
+  }
+
+  // ---- 4) Inactive meter still billing ----
   if (meter?.status === "inactive" && avg > 0) {
-    flags.push({ code: "inactive_billing_risk", level: "high", msg: "Inactive meter producing reads" });
+    flags.push({
+      code: "inactive_billing_risk",
+      level: "high",
+      msg: "Inactive meter producing reads (billing risk)",
+      stats: { avg }
+    });
+  }
+
+  // ---- 5) AMI comm-fail correlation ----
+  const commFailEvents = (events || []).filter(e =>
+    ["comm_fail", "last_gasp", "no_radio", "tamper"].includes(e.eventType)
+  );
+
+  if (commFailEvents.length > 0) {
+    flags.push({
+      code: "ami_event_risk",
+      level: "medium",
+      msg: "AMI trouble events present in window",
+      stats: { eventCount: commFailEvents.length },
+      events: commFailEvents.slice(-5)
+    });
+  }
+
+  // ---- 6) Read gap risk (time-based) ----
+  const sortedReads = reads
+    .map(r => ({...r, _ts: new Date(r.ts)}))
+    .filter(r => !isNaN(r._ts))
+    .sort((a,b) => a._ts - b._ts);
+
+  if (sortedReads.length >= 2) {
+    const last = sortedReads[sortedReads.length - 1]._ts;
+    const hoursSinceLast = (now - last) / (1000 * 60 * 60);
+
+    if (hoursSinceLast > 24) {
+      flags.push({
+        code: "read_gap",
+        level: "medium",
+        msg: "No reads in last 24h (estimate / held bill risk)",
+        stats: { hoursSinceLast: Math.round(hoursSinceLast) }
+      });
+    }
+  }
+
+  // ---- 7) Flatline (too little variance) ----
+  const range = max - min;
+  if (avg > 0 && range / avg < 0.02) {
+    flags.push({
+      code: "flatline_usage",
+      level: "low",
+      msg: "Usage flatlined vs. normal variance (possible register issue)",
+      stats: { min, max, avg }
+    });
   }
 
   return flags;
+}
+
+// ----------------------------------
+// Meter Health Index™ (MVP v1)
+// Score 0–100 using reads + AMI events
+// ----------------------------------
+function computeMeterHealthIndex(meter, reads = [], events = []) {
+  let score = 100;
+  const issues = [];
+  const now = new Date();
+
+  // Normalize values
+  const values = reads
+    .map(r => r.kwh ?? r.gallons)
+    .filter(v => typeof v === "number");
+
+  // ---- Rule A: Missing reads ----
+  if (reads.length === 0 || values.length === 0) {
+    score -= 35;
+    issues.push({
+      code: "missing_reads",
+      severity: "high",
+      msg: "No usable reads in window"
+    });
+  }
+
+  // ---- Rule B: Zero-use meters ----
+  if (values.length > 0) {
+    const zeroCount = values.filter(v => v === 0).length;
+    if (zeroCount >= Math.ceil(values.length * 0.8)) {
+      score -= 20;
+      issues.push({
+        code: "zero_use",
+        severity: "medium",
+        msg: "Sustained zero usage",
+        stats: { zeroCount, total: values.length }
+      });
+    }
+  }
+
+  // ---- Rule C: Stuck / flatline meters ----
+  if (values.length >= 5) {
+    const max = Math.max(...values);
+    const min = Math.min(...values);
+    const avg = values.reduce((a,b)=>a+b,0) / values.length;
+    const range = max - min;
+
+    if (avg > 0 && range / avg < 0.01) {
+      score -= 15;
+      issues.push({
+        code: "stuck_or_flatline",
+        severity: "medium",
+        msg: "Usage variance extremely low (possible stuck register)",
+        stats: { min, max, avg }
+      });
+    }
+  }
+
+  // ---- Rule D: Negative reads / rollback ----
+  if (values.some(v => v < 0)) {
+    score -= 25;
+    issues.push({
+      code: "negative_reads",
+      severity: "high",
+      msg: "Negative usage detected (rollback/register issue)"
+    });
+  }
+
+  // ---- Rule E: Dead AMI radio / comm failures ----
+  const commEvents = events.filter(e =>
+    ["comm_fail", "no_radio", "last_gasp"].includes(e.eventType)
+  );
+  if (commEvents.length > 0) {
+    score -= Math.min(25, commEvents.length * 5);
+    issues.push({
+      code: "ami_comm_trouble",
+      severity: "high",
+      msg: "AMI comm/radio trouble events present",
+      stats: { eventCount: commEvents.length }
+    });
+  }
+
+  // ---- Rule F: Reversed meter / tamper ----
+  const reverseEvents = events.filter(e =>
+    ["reverse_energy", "reverse_flow", "tamper"].includes(e.eventType)
+  );
+  if (reverseEvents.length > 0) {
+    score -= 20;
+    issues.push({
+      code: "reverse_or_tamper",
+      severity: "high",
+      msg: "Reverse energy/flow or tamper events detected",
+      stats: { eventCount: reverseEvents.length }
+    });
+  }
+
+  // ---- Rule G: No events at all (quiet meter) ----
+  if (events.length === 0) {
+    score -= 5;
+    issues.push({
+      code: "no_events",
+      severity: "low",
+      msg: "No AMI events in window (may be fine, but worth watching)"
+    });
+  }
+
+  // ---- Rule H: Read gap / repeated estimation proxy ----
+  const sortedReads = reads
+    .map(r => ({...r, _ts: new Date(r.ts)}))
+    .filter(r => !isNaN(r._ts))
+    .sort((a,b) => a._ts - b._ts);
+
+  if (sortedReads.length > 0) {
+    const lastTs = sortedReads[sortedReads.length - 1]._ts;
+    const hoursSinceLast = (now - lastTs) / (1000 * 60 * 60);
+
+    if (hoursSinceLast > 24) {
+      score -= 10;
+      issues.push({
+        code: "read_gap",
+        severity: "medium",
+        msg: "No reads in last 24h (estimate/held bill risk)",
+        stats: { hoursSinceLast: Math.round(hoursSinceLast) }
+      });
+    }
+  }
+
+  // Clamp score 0–100
+  score = Math.max(0, Math.min(100, score));
+
+  // Health band
+  const band =
+    score >= 90 ? "excellent" :
+    score >= 75 ? "good" :
+    score >= 60 ? "fair" :
+    score >= 40 ? "poor" : "critical";
+
+  return { score, band, issues };
 }
 
 // -------------
@@ -131,10 +364,94 @@ app.get("/meter/:id", (req, res) => {
   const meter = meters.find(m => m.id === id);
 
   if (!meter) {
-    return res.status(404).json({ error: "Meter not found", id });
+    return res.status(404).json({
+      error: "Meter not found",
+      id
+    });
   }
 
   res.json(meter);
+});
+
+// ---------------------------
+// PATCH /meter/:id
+// Update meter fields (partial update)
+// Allowed fields:
+//   status: "active" | "inactive"
+//   type: "electric" | "water" | "gas"
+//   location: { city, state, zone, feeder }
+//   multiplier: number
+//   notes: string
+//   meta: any object
+// ---------------------------
+app.patch("/meter/:id", (req, res) => {
+  const { id } = req.params;
+  const meterIndex = meters.findIndex(m => m.id === id);
+
+  if (meterIndex === -1) {
+    return res.status(404).json({
+      error: "Meter not found",
+      id
+    });
+  }
+
+  const meter = meters[meterIndex];
+  const updates = req.body || {};
+
+  // -------- Validation (light MVP rules) --------
+  if (updates.status && !["active", "inactive"].includes(updates.status)) {
+    return res.status(400).json({
+      error: "Invalid status. Use 'active' or 'inactive'."
+    });
+  }
+
+  if (updates.type && !["electric", "water", "gas"].includes(updates.type)) {
+    return res.status(400).json({
+      error: "Invalid type. Use 'electric', 'water', or 'gas'."
+    });
+  }
+
+  if (updates.multiplier !== undefined) {
+    const mult = Number(updates.multiplier);
+    if (isNaN(mult) || mult <= 0) {
+      return res.status(400).json({
+        error: "multiplier must be a positive number"
+      });
+    }
+    updates.multiplier = mult;
+  }
+
+  if (updates.location !== undefined) {
+    if (updates.location === null || typeof updates.location !== "object" || Array.isArray(updates.location)) {
+      return res.status(400).json({
+        error: "location must be a valid object (not null or array)"
+      });
+    }
+  }
+
+  // -------- Apply partial updates (whitelist allowed fields only) --------
+  const allowedUpdates = {};
+  
+  if (updates.status !== undefined) allowedUpdates.status = updates.status;
+  if (updates.type !== undefined) allowedUpdates.type = updates.type;
+  if (updates.multiplier !== undefined) allowedUpdates.multiplier = updates.multiplier;
+  if (updates.notes !== undefined) allowedUpdates.notes = updates.notes;
+  if (updates.meta !== undefined) allowedUpdates.meta = updates.meta;
+  if (updates.location !== undefined) {
+    allowedUpdates.location = { ...(meter.location || {}), ...updates.location };
+  }
+
+  const updatedMeter = {
+    ...meter,
+    ...allowedUpdates
+  };
+
+  meters[meterIndex] = updatedMeter;
+
+  res.json({
+    message: "Meter updated",
+    data: updatedMeter
+  });
 });
 
 // ---------------------------
@@ -178,15 +495,6 @@ app.get("/ami/events", (req, res) => {
 // ---------------------------
 // POST /ami/events
 // Ingest a new AMI event
-// Body example:
-// {
-//   "meterId": "MTR-1001",
-//   "eventType": "last_gasp",
-//   "severity": "high",
-//   "occurredAt": "2025-11-23T05:10:00Z",
-//   "meta": { "source": "headend" }
-// }
-// NOTE: id auto-generated if not provided
 // ---------------------------
 app.post("/ami/events", (req, res) => {
   const {
@@ -239,10 +547,6 @@ app.post("/ami/events", (req, res) => {
 // ---------------------------
 // GET /usage/:meter
 // Get usage reads for a given meter
-// Optional filters:
-//   ?limit=24
-//   ?since=2025-11-01T00:00:00Z
-//   ?until=2025-11-23T00:00:00Z
 // ---------------------------
 app.get("/usage/:meter", (req, res) => {
   const { meter } = req.params;
@@ -278,13 +582,6 @@ app.get("/usage/:meter", (req, res) => {
 // ---------------------------
 // POST /usage/:meter
 // Ingest ONE usage read for a meter
-// Body example (electric):
-// { "ts":"2025-11-23T05:10:00Z", "kwh": 14.2 }
-//
-// Body example (water):
-// { "ts":"2025-11-23T05:10:00Z", "gallons": 55 }
-//
-// If meterId is in body, it must match route.
 // ---------------------------
 app.post("/usage/:meter", (req, res) => {
   const { meter } = req.params;
@@ -339,13 +636,6 @@ app.post("/usage/:meter", (req, res) => {
 // ---------------------------
 // POST /usage/:meter/bulk
 // Ingest MULTIPLE reads at once
-// Body example:
-// {
-//   "reads":[
-//     {"ts":"2025-11-23T00:00:00Z","kwh":12.1},
-//     {"ts":"2025-11-23T01:00:00Z","kwh":11.8}
-//   ]
-// }
 // ---------------------------
 app.post("/usage/:meter/bulk", (req, res) => {
   const { meter } = req.params;
@@ -392,23 +682,159 @@ app.post("/usage/:meter/bulk", (req, res) => {
 
 // ---------------------------
 // GET /billing/flags
-// Run Billing Integrity Engine for all meters
-// Returns flags per meter
+// Billing Integrity Engine for ALL meters
+// Optional query:
+//   ?since=ISO_DATE   (default last 7 days)
+//   ?limit=200 reads per meter
 // ---------------------------
 app.get("/billing/flags", (req, res) => {
+  const { since } = req.query;
+  const limit = Number(req.query.limit || 200);
+
+  const sinceDate = since ? new Date(since) : new Date(Date.now() - 7*24*60*60*1000);
+
   const results = meters.map(m => {
-    const reads = usageReads.filter(r => r.meterId === m.id);
-    const flags = buildBillingFlags(m, reads);
+    const reads = usageReads
+      .filter(r => r.meterId === m.id)
+      .filter(r => !sinceDate || new Date(r.ts) >= sinceDate)
+      .slice(-limit);
+
+    const events = amiEvents
+      .filter(e => e.meterId === m.id)
+      .filter(e => !sinceDate || new Date(e.occurredAt) >= sinceDate);
+
+    const flags = buildBillingFlagsV2(m, reads, events);
+
     return {
       meterId: m.id,
-      flags,
-      flagCount: flags.length
+      flagCount: flags.length,
+      flags
     };
   });
 
   res.json({
+    since: sinceDate.toISOString(),
     count: results.length,
     data: results
+  });
+});
+
+// ---------------------------
+// GET /billing/flags/:meterId
+// Billing flags for ONE meter
+// Optional query:
+//   ?since=ISO_DATE
+//   ?limit=200
+// ---------------------------
+app.get("/billing/flags/:meterId", (req, res) => {
+  const { meterId } = req.params;
+  const { since } = req.query;
+  const limit = Number(req.query.limit || 200);
+
+  const meter = meters.find(m => m.id === meterId);
+  if (!meter) {
+    return res.status(404).json({ error: "Meter not found", meterId });
+  }
+
+  const sinceDate = since ? new Date(since) : new Date(Date.now() - 7*24*60*60*1000);
+
+  const reads = usageReads
+    .filter(r => r.meterId === meterId)
+    .filter(r => !sinceDate || new Date(r.ts) >= sinceDate)
+    .slice(-limit);
+
+  const events = amiEvents
+    .filter(e => e.meterId === meterId)
+    .filter(e => !sinceDate || new Date(e.occurredAt) >= sinceDate);
+
+  const flags = buildBillingFlagsV2(meter, reads, events);
+
+  res.json({
+    meterId,
+    since: sinceDate.toISOString(),
+    flagCount: flags.length,
+    flags
+  });
+});
+
+// ---------------------------
+// GET /meter-health/score
+// Health Index for ALL meters
+// Optional query:
+//   ?since=ISO_DATE (default last 7 days)
+//   ?limit=200 reads per meter
+// ---------------------------
+app.get("/meter-health/score", (req, res) => {
+  const { since } = req.query;
+  const limit = Number(req.query.limit || 200);
+  const sinceDate = since ? new Date(since) : new Date(Date.now() - 7*24*60*60*1000);
+
+  const results = meters.map(m => {
+    const reads = usageReads
+      .filter(r => r.meterId === m.id)
+      .filter(r => !sinceDate || new Date(r.ts) >= sinceDate)
+      .slice(-limit);
+
+    const events = amiEvents
+      .filter(e => e.meterId === m.id)
+      .filter(e => !sinceDate || new Date(e.occurredAt) >= sinceDate);
+
+    const health = computeMeterHealthIndex(m, reads, events);
+
+    return {
+      meterId: m.id,
+      type: m.type,
+      status: m.status,
+      score: health.score,
+      band: health.band,
+      issues: health.issues
+    };
+  });
+
+  res.json({
+    since: sinceDate.toISOString(),
+    count: results.length,
+    data: results
+  });
+});
+
+// ---------------------------
+// GET /meter-health/score/:meterId
+// Health Index for ONE meter
+// Optional query:
+//   ?since=ISO_DATE
+//   ?limit=200
+// ---------------------------
+app.get("/meter-health/score/:meterId", (req, res) => {
+  const { meterId } = req.params;
+  const { since } = req.query;
+  const limit = Number(req.query.limit || 200);
+  const sinceDate = since ? new Date(since) : new Date(Date.now() - 7*24*60*60*1000);
+
+  const meter = meters.find(m => m.id === meterId);
+  if (!meter) {
+    return res.status(404).json({ error: "Meter not found", meterId });
+  }
+
+  const reads = usageReads
+    .filter(r => r.meterId === meterId)
+    .filter(r => !sinceDate || new Date(r.ts) >= sinceDate)
+    .slice(-limit);
+
+  const events = amiEvents
+    .filter(e => e.meterId === meterId)
+    .filter(e => !sinceDate || new Date(e.occurredAt) >= sinceDate);
+
+  const health = computeMeterHealthIndex(meter, reads, events);
+
+  res.json({
+    meterId,
+    type: meter.type,
+    status: meter.status,
+    since: sinceDate.toISOString(),
+    score: health.score,
+    band: health.band,
+    issues: health.issues
   });
 });
 

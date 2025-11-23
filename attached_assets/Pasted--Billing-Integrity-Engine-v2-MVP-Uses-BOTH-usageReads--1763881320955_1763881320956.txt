@@ -1,0 +1,122 @@
+// ----------------------------------
+// Billing Integrity Engine (v2 MVP)
+// Uses BOTH usageReads + amiEvents
+// ----------------------------------
+function buildBillingFlagsV2(meter, reads, events) {
+  const flags = [];
+  const now = new Date();
+
+  // ---- Guardrails ----
+  if (!reads || reads.length === 0) {
+    flags.push({
+      code: "missing_reads",
+      level: "high",
+      msg: "No usage reads found in window",
+    });
+    return flags;
+  }
+
+  // Normalize numeric values
+  const values = reads.map(r => r.kwh ?? r.gallons).filter(v => typeof v === "number");
+  if (values.length === 0) {
+    flags.push({
+      code: "missing_reads",
+      level: "high",
+      msg: "Reads exist but no numeric usage values",
+    });
+    return flags;
+  }
+
+  const avg = values.reduce((a,b)=>a+b,0) / values.length;
+  const max = Math.max(...values);
+  const min = Math.min(...values);
+
+  // ---- 1) Zero-use / stuck trend ----
+  const zeroCount = values.filter(v => v === 0).length;
+  if (zeroCount >= Math.ceil(values.length * 0.8)) {
+    flags.push({
+      code: "zero_use",
+      level: "medium",
+      msg: "Sustained zero usage (possible stuck / vacant / bypass)",
+      stats: { zeroCount, total: values.length }
+    });
+  }
+
+  // ---- 2) Impossible spike ----
+  if (avg > 0 && max > avg * 5) {
+    flags.push({
+      code: "impossible_spike",
+      level: "high",
+      msg: "Usage spike exceeds threshold vs. baseline",
+      stats: { avg, max }
+    });
+  }
+
+  // ---- 3) Negative / rollback / bad read ----
+  const hasNegative = values.some(v => v < 0);
+  if (hasNegative) {
+    flags.push({
+      code: "negative_reads",
+      level: "high",
+      msg: "Negative usage detected (rollback / register error)",
+    });
+  }
+
+  // ---- 4) Inactive meter still billing ----
+  if (meter?.status === "inactive" && avg > 0) {
+    flags.push({
+      code: "inactive_billing_risk",
+      level: "high",
+      msg: "Inactive meter producing reads (billing risk)",
+      stats: { avg }
+    });
+  }
+
+  // ---- 5) AMI comm-fail correlation ----
+  const commFailEvents = (events || []).filter(e =>
+    ["comm_fail", "last_gasp", "no_radio", "tamper"].includes(e.eventType)
+  );
+
+  if (commFailEvents.length > 0) {
+    flags.push({
+      code: "ami_event_risk",
+      level: "medium",
+      msg: "AMI trouble events present in window",
+      stats: { eventCount: commFailEvents.length },
+      events: commFailEvents.slice(-5)
+    });
+  }
+
+  // ---- 6) Read gap risk (time-based) ----
+  const sortedReads = reads
+    .map(r => ({...r, _ts: new Date(r.ts)}))
+    .filter(r => !isNaN(r._ts))
+    .sort((a,b) => a._ts - b._ts);
+
+  if (sortedReads.length >= 2) {
+    const last = sortedReads[sortedReads.length - 1]._ts;
+    const hoursSinceLast = (now - last) / (1000 * 60 * 60);
+
+    if (hoursSinceLast > 24) {
+      flags.push({
+        code: "read_gap",
+        level: "medium",
+        msg: "No reads in last 24h (estimate / held bill risk)",
+        stats: { hoursSinceLast: Math.round(hoursSinceLast) }
+      });
+    }
+  }
+
+  // ---- 7) Flatline (too little variance) ----
+  const range = max - min;
+  if (avg > 0 && range / avg < 0.02) {
+    flags.push({
+      code: "flatline_usage",
+      level: "low",
+      msg: "Usage flatlined vs. normal variance (possible register issue)",
+      stats: { min, max, avg }
+    });
+  }
+
+  return flags;
+}

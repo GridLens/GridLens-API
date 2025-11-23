@@ -1,0 +1,137 @@
+// ----------------------------------
+// Meter Health Index™ (MVP v1)
+// Score 0–100 using reads + AMI events
+// ----------------------------------
+function computeMeterHealthIndex(meter, reads = [], events = []) {
+  let score = 100;
+  const issues = [];
+  const now = new Date();
+
+  // Normalize values
+  const values = reads
+    .map(r => r.kwh ?? r.gallons)
+    .filter(v => typeof v === "number");
+
+  // ---- Rule A: Missing reads ----
+  if (reads.length === 0 || values.length === 0) {
+    score -= 35;
+    issues.push({
+      code: "missing_reads",
+      severity: "high",
+      msg: "No usable reads in window"
+    });
+  }
+
+  // ---- Rule B: Zero-use meters ----
+  if (values.length > 0) {
+    const zeroCount = values.filter(v => v === 0).length;
+    if (zeroCount >= Math.ceil(values.length * 0.8)) {
+      score -= 20;
+      issues.push({
+        code: "zero_use",
+        severity: "medium",
+        msg: "Sustained zero usage",
+        stats: { zeroCount, total: values.length }
+      });
+    }
+  }
+
+  // ---- Rule C: Stuck / flatline meters ----
+  if (values.length >= 5) {
+    const max = Math.max(...values);
+    const min = Math.min(...values);
+    const avg = values.reduce((a,b)=>a+b,0) / values.length;
+    const range = max - min;
+
+    if (avg > 0 && range / avg < 0.01) { // <1% variance
+      score -= 15;
+      issues.push({
+        code: "stuck_or_flatline",
+        severity: "medium",
+        msg: "Usage variance extremely low (possible stuck register)",
+        stats: { min, max, avg }
+      });
+    }
+  }
+
+  // ---- Rule D: Negative reads / rollback ----
+  if (values.some(v => v < 0)) {
+    score -= 25;
+    issues.push({
+      code: "negative_reads",
+      severity: "high",
+      msg: "Negative usage detected (rollback/register issue)"
+    });
+  }
+
+  // ---- Rule E: Dead AMI radio / comm failures ----
+  const commEvents = events.filter(e =>
+    ["comm_fail", "no_radio", "last_gasp"].includes(e.eventType)
+  );
+  if (commEvents.length > 0) {
+    score -= Math.min(25, commEvents.length * 5);
+    issues.push({
+      code: "ami_comm_trouble",
+      severity: "high",
+      msg: "AMI comm/radio trouble events present",
+      stats: { eventCount: commEvents.length }
+    });
+  }
+
+  // ---- Rule F: Reversed meter / tamper ----
+  const reverseEvents = events.filter(e =>
+    ["reverse_energy", "reverse_flow", "tamper"].includes(e.eventType)
+  );
+  if (reverseEvents.length > 0) {
+    score -= 20;
+    issues.push({
+      code: "reverse_or_tamper",
+      severity: "high",
+      msg: "Reverse energy/flow or tamper events detected",
+      stats: { eventCount: reverseEvents.length }
+    });
+  }
+
+  // ---- Rule G: No events at all (quiet meter) ----
+  if (events.length === 0) {
+    score -= 5;
+    issues.push({
+      code: "no_events",
+      severity: "low",
+      msg: "No AMI events in window (may be fine, but worth watching)"
+    });
+  }
+
+  // ---- Rule H: Read gap / repeated estimation proxy ----
+  const sortedReads = reads
+    .map(r => ({...r, _ts: new Date(r.ts)}))
+    .filter(r => !isNaN(r._ts))
+    .sort((a,b) => a._ts - b._ts);
+
+  if (sortedReads.length > 0) {
+    const lastTs = sortedReads[sortedReads.length - 1]._ts;
+    const hoursSinceLast = (now - lastTs) / (1000 * 60 * 60);
+
+    if (hoursSinceLast > 24) {
+      score -= 10;
+      issues.push({
+        code: "read_gap",
+        severity: "medium",
+        msg: "No reads in last 24h (estimate/held bill risk)",
+        stats: { hoursSinceLast: Math.round(hoursSinceLast) }
+      });
+    }
+  }
+
+  // Clamp score 0–100
+  score = Math.max(0, Math.min(100, score));
+
+  // Health band
+  const band =
+    score >= 90 ? "excellent" :
+    score >= 75 ? "good" :
+    score >= 60 ? "fair" :
+    score >= 40 ? "poor" : "critical";
+
+  return { score, band, issues };
+}

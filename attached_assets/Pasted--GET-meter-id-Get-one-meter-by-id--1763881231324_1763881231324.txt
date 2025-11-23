@@ -1,0 +1,96 @@
+// ---------------------------
+// GET /meter/:id
+// Get one meter by id
+// ---------------------------
+app.get("/meter/:id", (req, res) => {
+  const { id } = req.params;
+  const meter = meters.find(m => m.id === id);
+
+  if (!meter) {
+    return res.status(404).json({
+      error: "Meter not found",
+      id
+    });
+  }
+
+  res.json(meter);
+});
+
+
+// ---------------------------
+// PATCH /meter/:id
+// Update meter fields (partial update)
+// Allowed fields:
+//   status: "active" | "inactive"
+//   type: "electric" | "water" | "gas"
+//   location: { city, state, zone, feeder }
+//   multiplier: number
+//   notes: string
+//   meta: any object
+//
+// Example body:
+// {
+//   "status": "inactive",
+//   "location": { "city":"Byhalia", "state":"MS" },
+//   "notes": "service disconnected"
+// }
+// ---------------------------
+app.patch("/meter/:id", (req, res) => {
+  const { id } = req.params;
+  const meterIndex = meters.findIndex(m => m.id === id);
+
+  if (meterIndex === -1) {
+    return res.status(404).json({
+      error: "Meter not found",
+      id
+    });
+  }
+
+  const meter = meters[meterIndex];
+  const updates = req.body || {};
+
+  // -------- Validation (light MVP rules) --------
+  if (updates.status && !["active", "inactive"].includes(updates.status)) {
+    return res.status(400).json({
+      error: "Invalid status. Use 'active' or 'inactive'."
+    });
+  }
+
+  if (updates.type && !["electric", "water", "gas"].includes(updates.type)) {
+    return res.status(400).json({
+      error: "Invalid type. Use 'electric', 'water', or 'gas'."
+    });
+  }
+
+  if (updates.multiplier !== undefined) {
+    const mult = Number(updates.multiplier);
+    if (isNaN(mult) || mult <= 0) {
+      return res.status(400).json({
+        error: "multiplier must be a positive number"
+      });
+    }
+    updates.multiplier = mult;
+  }
+
+  if (updates.location && typeof updates.location !== "object") {
+    return res.status(400).json({
+      error: "location must be an object"
+    });
+  }
+
+  // -------- Apply partial updates --------
+  const updatedMeter = {
+    ...meter,
+    ...updates,
+    location: updates.location
+      ? { ...(meter.location || {}), ...updates.location }
+      : meter.location
+  };
+
+  meters[meterIndex] = updatedMeter;
+
+  res.json({
+    message: "Meter updated",
+    data: updatedMeter
+  });
+});

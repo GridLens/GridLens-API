@@ -1,0 +1,77 @@
+// ---------------------------
+// GET /billing/flags
+// Billing Integrity Engine for ALL meters
+// Optional query:
+//   ?since=ISO_DATE   (default last 7 days)
+//   ?limit=200 reads per meter
+// ---------------------------
+app.get("/billing/flags", (req, res) => {
+  const { since } = req.query;
+  const limit = Number(req.query.limit || 200);
+
+  const sinceDate = since ? new Date(since) : new Date(Date.now() - 7*24*60*60*1000);
+
+  const results = meters.map(m => {
+    const reads = usageReads
+      .filter(r => r.meterId === m.id)
+      .filter(r => !sinceDate || new Date(r.ts) >= sinceDate)
+      .slice(-limit);
+
+    const events = amiEvents
+      .filter(e => e.meterId === m.id)
+      .filter(e => !sinceDate || new Date(e.occurredAt) >= sinceDate);
+
+    const flags = buildBillingFlagsV2(m, reads, events);
+
+    return {
+      meterId: m.id,
+      flagCount: flags.length,
+      flags
+    };
+  });
+
+  res.json({
+    since: sinceDate.toISOString(),
+    count: results.length,
+    data: results
+  });
+});
+
+
+// ---------------------------
+// GET /billing/flags/:meterId
+// Billing flags for ONE meter
+// Optional query:
+//   ?since=ISO_DATE
+//   ?limit=200
+// ---------------------------
+app.get("/billing/flags/:meterId", (req, res) => {
+  const { meterId } = req.params;
+  const { since } = req.query;
+  const limit = Number(req.query.limit || 200);
+
+  const meter = meters.find(m => m.id === meterId);
+  if (!meter) {
+    return res.status(404).json({ error: "Meter not found", meterId });
+  }
+
+  const sinceDate = since ? new Date(since) : new Date(Date.now() - 7*24*60*60*1000);
+
+  const reads = usageReads
+    .filter(r => r.meterId === meterId)
+    .filter(r => !sinceDate || new Date(r.ts) >= sinceDate)
+    .slice(-limit);
+
+  const events = amiEvents
+    .filter(e => e.meterId === meterId)
+    .filter(e => !sinceDate || new Date(e.occurredAt) >= sinceDate);
+
+  const flags = buildBillingFlagsV2(meter, reads, events);
+
+  res.json({
+    meterId,
+    since: sinceDate.toISOString(),
+    flagCount: flags.length,
+    flags
+  });
+});
