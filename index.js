@@ -28,6 +28,7 @@ app.get("/health", async (req, res) => {
     const result = await pool.query("SELECT NOW() AS time")
     res.json({
       database: "connected",
+
       db_time: result.rows[0].time
     })
   } catch (err) {
@@ -40,8 +41,8 @@ app.get("/health", async (req, res) => {
   }
 })
 
-// START SERVER
-const port = process.env.PORT || 3000
-app.listen(3000, () => {
-  console.log("🚀 GridLens API running on port 3000")
-})
+// Start server
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`🚀 GridLens API running on port ${port}`);
+});
