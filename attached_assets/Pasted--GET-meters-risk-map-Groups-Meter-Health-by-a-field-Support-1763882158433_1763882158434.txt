@@ -1,0 +1,125 @@
+// ---------------------------
+// GET /meters/risk-map
+// Groups Meter Health by a field.
+// Supported groupBy:
+//   city (default)
+//   feeder
+//   zone
+//   transformer
+//
+// Optional query:
+//   ?groupBy=feeder
+//   ?since=ISO_DATE (default last 7 days)
+//   ?limit=200 reads per meter
+// ---------------------------
+app.get("/meters/risk-map", (req, res) => {
+  const groupBy = (req.query.groupBy || "city").toLowerCase();
+  const { since } = req.query;
+  const limit = Number(req.query.limit || 200);
+
+  const sinceDate = since
+    ? new Date(since)
+    : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  const allowed = ["city", "feeder", "zone", "transformer"];
+  if (!allowed.includes(groupBy)) {
+    return res.status(400).json({
+      error: `groupBy must be one of: ${allowed.join(", ")}`,
+      example: "/meters/risk-map?groupBy=feeder"
+    });
+  }
+
+  // Helper to safely pull grouping key from meter
+  function getGroupKey(m) {
+    const loc = m.location || {};
+    if (groupBy === "city") return loc.city || "unknown";
+    if (groupBy === "feeder") return loc.feeder || m.feeder || "unknown";
+    if (groupBy === "zone") return loc.zone || m.zone || "unknown";
+    if (groupBy === "transformer") return loc.transformer || m.transformer || "unknown";
+    return "unknown";
+  }
+
+  const buckets = {}; 
+  // buckets[key] = {
+  //   key,
+  //   meters: [],
+  //   bandCounts: {excellent, good, fair, poor, critical},
+  //   avgScore,
+  //   worstMeters:[]
+  // }
+
+  meters.forEach(m => {
+    const reads = usageReads
+      .filter(r => r.meterId === m.id)
+      .filter(r => !sinceDate || new Date(r.ts) >= sinceDate)
+      .slice(-limit);
+
+    const events = amiEvents
+      .filter(e => e.meterId === m.id)
+      .filter(e => !sinceDate || new Date(e.occurredAt) >= sinceDate);
+
+    const health = computeMeterHealthIndex(m, reads, events);
+
+    const key = getGroupKey(m);
+    if (!buckets[key]) {
+      buckets[key] = {
+        key,
+        groupBy,
+        meterCount: 0,
+        bandCounts: {
+          excellent: 0,
+          good: 0,
+          fair: 0,
+          poor: 0,
+          critical: 0
+        },
+        _scoreSum: 0,
+        meters: []
+      };
+    }
+
+    const b = buckets[key];
+    b.meterCount += 1;
+    b.bandCounts[health.band] = (b.bandCounts[health.band] || 0) + 1;
+    b._scoreSum += health.score;
+
+    b.meters.push({
+      meterId: m.id,
+      score: health.score,
+      band: health.band,
+      issues: health.issues
+    });
+  });
+
+  // finalize each bucket
+  const results = Object.values(buckets).map(b => {
+    const avgScore =
+      b.meterCount === 0 ? 0 : b._scoreSum / b.meterCount;
+
+    const worstMeters = [...b.meters]
+      .sort((a, c) => a.score - c.score)
+      .slice(0, 3);
+
+    // remove internal temp field
+    delete b._scoreSum;
+
+    return {
+      key: b.key,
+      groupBy: b.groupBy,
+      meterCount: b.meterCount,
+      avgScore: Number(avgScore.toFixed(1)),
+      bandCounts: b.bandCounts,
+      worstMeters
+    };
+  });
+
+  // Sort buckets by risk (lowest avgScore first)
+  results.sort((a, b) => a.avgScore - b.avgScore);
+
+  res.json({
+    groupBy,
+    since: sinceDate.toISOString(),
+    bucketCount: results.length,
+    data: results
+  });
+});

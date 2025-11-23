@@ -30,49 +30,80 @@ The system uses in-memory data structures for MVP development. Three primary dat
 
 ### API Endpoints
 
-The API provides 5 core endpoints plus health check:
+The API provides 15 comprehensive endpoints:
 
 **Health Check**
 - `GET /health` - System health status
-  - Returns: `{ ok: true, api: "up", db: "mvp-mock" }`
 
-**Meter Management**
-- `GET /meters` - List all meters
-  - Query params: `?status=active&type=electric`
-  - Returns: `{ count: N, data: [...meters] }`
+**Meter Management** (Read Operations)
+- `GET /meters` - List all meters with optional filters (?status=active&type=electric)
 - `GET /meter/:id` - Get single meter by ID
-  - Example: `/meter/MTR-1001`
-  - Returns: meter object or 404
+
+**Meter Management** (Write Operations)
+- `PATCH /meter/:id` - Update meter (secure partial updates with field whitelisting)
 
 **AMI Events**
-- `GET /ami/events` - List AMI events
-  - Query params: `?meterId=MTR-1001&eventType=comm_fail&severity=high`
-  - Returns: `{ count: N, data: [...events] }`
+- `GET /ami/events` - List AMI events with filters (?meterId=MTR-1001&eventType=comm_fail&severity=high)
+- `POST /ami/events` - Ingest new AMI events
 
 **Usage Data**
-- `GET /usage/:meter` - Get usage reads for a meter
-  - Example: `/usage/MTR-1001?limit=24`
-  - Returns: `{ meterId, count, data: [...reads] }`
+- `GET /usage/:meter` - Get usage reads for a meter (?limit=24)
+- `POST /usage/:meter` - Ingest single usage read
+- `POST /usage/:meter/bulk` - Bulk ingest multiple usage reads
 
-**Billing Integrity**
-- `GET /billing/flags` - Run billing integrity engine
-  - Returns flags for all meters: `{ count: N, data: [{ meterId, flags, flagCount }] }`
+**Billing Integrity Engine v2**
+- `GET /billing/flags` - Analyze all meters for billing anomalies (?since=ISO_DATE&limit=200)
+- `GET /billing/flags/:meterId` - Analyze single meter for billing anomalies
 
-### Billing Integrity Engine
+**Meter Health Index™**
+- `GET /meter-health/score` - Get health scores for all meters (0-100 scale)
+- `GET /meter-health/score/:meterId` - Get health score for single meter
 
-The billing engine applies MVP-level detection rules to identify billing anomalies:
+**Dashboard & Analytics**
+- `GET /meters/risk-map` - Group meter health by location/infrastructure (?groupBy=city|feeder|zone|transformer)
+- `GET /dashboard/overview` - Comprehensive dashboard data bundle (fleet health, at-risk meters, risk map, billing flags)
+
+### Billing Integrity Engine v2
+
+The enhanced billing engine analyzes **both usage reads AND AMI events** with 7 comprehensive detection rules:
 
 **Detection Rules**
 1. **Missing Reads** - No usage data in the query window (high severity)
-2. **Zero Usage** - Sustained zero consumption (≥80% of reads are zero) (medium severity)
+2. **Zero Usage** - Sustained zero consumption ≥80% of reads (medium severity)
 3. **Impossible Spike** - Usage exceeds 5x average (high severity)
-4. **Inactive Billing Risk** - Inactive meter still producing reads (high severity)
+4. **Negative Reads** - Rollback/register errors detected (high severity)
+5. **Inactive Billing Risk** - Inactive meter still producing reads (high severity)
+6. **AMI Event Risk** - Communication failures, last gasp, tamper events (high severity)
+7. **Read Gap** - No reads in last 24 hours (medium severity)
+8. **Flatline Usage** - Too little variance in consumption patterns (low severity)
 
 **Flag Structure**
 Each flag includes:
 - `code`: Identifier for the issue type
-- `level`: Severity (high, medium, low)
+- `severity`: Severity level (high, medium, low)
 - `msg`: Human-readable description
+- `stats`: Additional diagnostic data (optional)
+
+### Meter Health Index™
+
+Proprietary 0-100 scoring system with 8 diagnostic rules and 5 health bands:
+
+**Health Bands**
+- 90-100: **Excellent** - Meter operating optimally
+- 75-89: **Good** - Normal operation
+- 60-74: **Fair** - Minor issues
+- 40-59: **Poor** - Significant issues requiring attention
+- 0-39: **Critical** - Urgent action required
+
+**Health Scoring Rules** (point deductions from 100)
+1. Missing reads (-35 pts)
+2. Zero usage patterns (-20 pts)
+3. Flatline/stuck meters (-15 pts)
+4. Negative reads (-25 pts)
+5. AMI communication failures (-5 to -25 pts based on severity)
+6. Reverse flow/tamper events (-20 pts)
+7. No AMI events in window (-5 pts)
+8. Read gaps in last 24h (-10 pts)
 
 ### Sample Data
 
@@ -137,9 +168,19 @@ curl http://localhost:3000/billing/flags
 
 ## Recent Changes
 
-**November 23, 2025**
+**November 23, 2025 - Session 2: Dashboard & Analytics**
+- Added `/meters/risk-map` endpoint - Group meter health by location/infrastructure (city, feeder, zone, transformer)
+- Added `/dashboard/overview` endpoint - Comprehensive dashboard data bundle for Retool integration
+- API now has 15 total endpoints providing complete meter monitoring and analytics capabilities
+
+**November 23, 2025 - Session 1: Core API Development**
 - Converted API from CommonJS to ES modules
-- Implemented all 5 core endpoints with filtering capabilities
-- Added billing integrity engine with 4 detection rules
+- Implemented all 5 core meter/event/usage endpoints with filtering capabilities
+- Enhanced Billing Integrity Engine to v2 with 7 detection rules (reads + AMI events)
+- Added Meter Health Index™ scoring system (0-100 scale) with 8 diagnostic rules and 5 health bands
+- Implemented secure PATCH /meter/:id endpoint with field whitelisting and validation
+- Added data ingestion endpoints (POST /ami/events, POST /usage/:meter, POST /usage/:meter/bulk)
+- Added health score endpoints for all meters and individual meters
+- Added per-meter billing flag analysis endpoint
 - Removed database integration (using in-memory storage for MVP)
 - Cleaned up unused files (db.js, test-db.js)

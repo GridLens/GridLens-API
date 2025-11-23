@@ -838,6 +838,396 @@ app.get("/meter-health/score/:meterId", (req, res) => {
   });
 });
 
+// ---------------------------
+// GET /meters/risk-map
+// Groups Meter Health by a field.
+// Supported groupBy:
+//   city (default)
+//   feeder
+//   zone
+//   transformer
+//
+// Optional query:
+//   ?groupBy=feeder
+//   ?since=ISO_DATE (default last 7 days)
+//   ?limit=200 reads per meter
+// ---------------------------
+app.get("/meters/risk-map", (req, res) => {
+  const groupBy = (req.query.groupBy || "city").toLowerCase();
+  const { since } = req.query;
+  const limit = Number(req.query.limit || 200);
+
+  // Validate groupBy
+  const allowed = ["city", "feeder", "zone", "transformer"];
+  if (!allowed.includes(groupBy)) {
+    return res.status(400).json({
+      error: `groupBy must be one of: ${allowed.join(", ")}`,
+      example: "/meters/risk-map?groupBy=feeder"
+    });
+  }
+
+  // Validate limit
+  if (isNaN(limit) || limit < 0) {
+    return res.status(400).json({
+      error: "limit must be a non-negative number"
+    });
+  }
+
+  // Validate and parse since
+  let sinceDate;
+  if (since) {
+    sinceDate = new Date(since);
+    if (isNaN(sinceDate.getTime())) {
+      return res.status(400).json({
+        error: "since must be a valid ISO 8601 date",
+        example: "?since=2025-11-01T00:00:00Z"
+      });
+    }
+  } else {
+    sinceDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  }
+
+  // Helper to safely pull grouping key from meter
+  function getGroupKey(m) {
+    const loc = m.location || {};
+    if (groupBy === "city") return loc.city || "unknown";
+    if (groupBy === "feeder") return loc.feeder || m.feeder || "unknown";
+    if (groupBy === "zone") return loc.zone || m.zone || "unknown";
+    if (groupBy === "transformer") return loc.transformer || m.transformer || "unknown";
+    return "unknown";
+  }
+
+  const buckets = {}; 
+  // buckets[key] = {
+  //   key,
+  //   meters: [],
+  //   bandCounts: {excellent, good, fair, poor, critical},
+  //   avgScore,
+  //   worstMeters:[]
+  // }
+
+  meters.forEach(m => {
+    const reads = usageReads
+      .filter(r => r.meterId === m.id)
+      .filter(r => {
+        const readDate = new Date(r.ts);
+        return !isNaN(readDate.getTime()) && readDate >= sinceDate;
+      })
+      .slice(-limit);
+
+    const events = amiEvents
+      .filter(e => e.meterId === m.id)
+      .filter(e => {
+        const eventDate = new Date(e.occurredAt);
+        return !isNaN(eventDate.getTime()) && eventDate >= sinceDate;
+      });
+
+    const health = computeMeterHealthIndex(m, reads, events);
+
+    const key = getGroupKey(m);
+    if (!buckets[key]) {
+      buckets[key] = {
+        key,
+        groupBy,
+        meterCount: 0,
+        bandCounts: {
+          excellent: 0,
+          good: 0,
+          fair: 0,
+          poor: 0,
+          critical: 0
+        },
+        _scoreSum: 0,
+        meters: []
+      };
+    }
+
+    const b = buckets[key];
+    b.meterCount += 1;
+    b.bandCounts[health.band] = (b.bandCounts[health.band] || 0) + 1;
+    b._scoreSum += health.score;
+
+    b.meters.push({
+      meterId: m.id,
+      score: health.score,
+      band: health.band,
+      issues: health.issues
+    });
+  });
+
+  // finalize each bucket
+  const results = Object.values(buckets).map(b => {
+    const avgScore =
+      b.meterCount === 0 ? 0 : b._scoreSum / b.meterCount;
+
+    const worstMeters = [...b.meters]
+      .sort((a, c) => a.score - c.score)
+      .slice(0, 3);
+
+    // remove internal temp field
+    delete b._scoreSum;
+
+    return {
+      key: b.key,
+      groupBy: b.groupBy,
+      meterCount: b.meterCount,
+      avgScore: Number(avgScore.toFixed(1)),
+      bandCounts: b.bandCounts,
+      worstMeters
+    };
+  });
+
+  // Sort buckets by risk (lowest avgScore first)
+  results.sort((a, b) => a.avgScore - b.avgScore);
+
+  res.json({
+    groupBy,
+    since: sinceDate.toISOString(),
+    bucketCount: results.length,
+    data: results
+  });
+});
+
+// ---------------------------
+// GET /dashboard/overview
+// One-call bundle for dashboards.
+// Includes:
+//  - fleet health summary
+//  - at-risk meters
+//  - risk map buckets
+//  - billing flags overview
+//
+// Optional query:
+//   ?since=ISO_DATE (default last 7 days)
+//   ?limit=200 reads per meter
+//   ?threshold=60 (at-risk cutoff)
+//   ?groupBy=city|feeder|zone|transformer (risk map grouping)
+// ---------------------------
+app.get("/dashboard/overview", (req, res) => {
+  const { since } = req.query;
+  const limit = Number(req.query.limit || 200);
+  const threshold = Number(req.query.threshold || 60);
+  const groupBy = (req.query.groupBy || "city").toLowerCase();
+
+  // Validate limit
+  if (isNaN(limit) || limit < 0) {
+    return res.status(400).json({
+      error: "limit must be a non-negative number"
+    });
+  }
+
+  // Validate threshold
+  if (isNaN(threshold) || threshold < 0 || threshold > 100) {
+    return res.status(400).json({
+      error: "threshold must be a number between 0 and 100"
+    });
+  }
+
+  // Validate groupBy
+  const allowedGroup = ["city", "feeder", "zone", "transformer"];
+  if (!allowedGroup.includes(groupBy)) {
+    return res.status(400).json({
+      error: `groupBy must be one of: ${allowedGroup.join(", ")}`
+    });
+  }
+
+  // Validate and parse since
+  let sinceDate;
+  if (since) {
+    sinceDate = new Date(since);
+    if (isNaN(sinceDate.getTime())) {
+      return res.status(400).json({
+        error: "since must be a valid ISO 8601 date",
+        example: "?since=2025-11-01T00:00:00Z"
+      });
+    }
+  } else {
+    sinceDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  }
+
+  // ---------- HEALTH SUMMARY ----------
+  const bandCounts = {
+    excellent: 0,
+    good: 0,
+    fair: 0,
+    poor: 0,
+    critical: 0
+  };
+
+  const issueTally = {};   // Meter health issues tally
+  const scoredMeters = []; // For avg/worst/at-risk
+
+  // ---------- BILLING FLAGS ----------
+  const billingTally = {};  // Billing flags tally
+  const billingMeters = []; // For worst billing meters
+
+  // ---------- RISK MAP ----------
+  const safeGroupBy = groupBy;
+
+  function getGroupKey(m) {
+    const loc = m.location || {};
+    if (safeGroupBy === "city") return loc.city || "unknown";
+    if (safeGroupBy === "feeder") return loc.feeder || m.feeder || "unknown";
+    if (safeGroupBy === "zone") return loc.zone || m.zone || "unknown";
+    if (safeGroupBy === "transformer") return loc.transformer || m.transformer || "unknown";
+    return "unknown";
+  }
+
+  const buckets = {}; // risk-map buckets
+
+  // ---------- LOOP THROUGH METERS ----------
+  meters.forEach(m => {
+    const reads = usageReads
+      .filter(r => r.meterId === m.id)
+      .filter(r => {
+        const readDate = new Date(r.ts);
+        return !isNaN(readDate.getTime()) && readDate >= sinceDate;
+      })
+      .slice(-limit);
+
+    const events = amiEvents
+      .filter(e => e.meterId === m.id)
+      .filter(e => {
+        const eventDate = new Date(e.occurredAt);
+        return !isNaN(eventDate.getTime()) && eventDate >= sinceDate;
+      });
+
+    // Health score
+    const health = computeMeterHealthIndex(m, reads, events);
+
+    bandCounts[health.band] = (bandCounts[health.band] || 0) + 1;
+
+    health.issues.forEach(issue => {
+      issueTally[issue.code] = (issueTally[issue.code] || 0) + 1;
+    });
+
+    scoredMeters.push({
+      meterId: m.id,
+      type: m.type,
+      status: m.status,
+      score: health.score,
+      band: health.band,
+      issues: health.issues
+    });
+
+    // Billing flags - count each flag code once per meter
+    const billingFlags = buildBillingFlagsV2(m, reads, events);
+    const flagCodes = new Set(billingFlags.map(f => f.code));
+    flagCodes.forEach(code => {
+      billingTally[code] = (billingTally[code] || 0) + 1;
+    });
+
+    billingMeters.push({
+      meterId: m.id,
+      flagCount: billingFlags.length,
+      flags: billingFlags
+    });
+
+    // Risk-map bucket
+    const key = getGroupKey(m);
+    if (!buckets[key]) {
+      buckets[key] = {
+        key,
+        groupBy: safeGroupBy,
+        meterCount: 0,
+        bandCounts: {
+          excellent: 0, good: 0, fair: 0, poor: 0, critical: 0
+        },
+        _scoreSum: 0,
+        meters: []
+      };
+    }
+
+    const b = buckets[key];
+    b.meterCount += 1;
+    b.bandCounts[health.band] = (b.bandCounts[health.band] || 0) + 1;
+    b._scoreSum += health.score;
+    b.meters.push({
+      meterId: m.id,
+      score: health.score,
+      band: health.band,
+      issues: health.issues
+    });
+  });
+
+  // ---------- FINALIZE HEALTH SUMMARY ----------
+  const avgScore =
+    scoredMeters.length === 0
+      ? 0
+      : scoredMeters.reduce((s, x) => s + x.score, 0) / scoredMeters.length;
+
+  const topIssues = Object.entries(issueTally)
+    .map(([code, count]) => ({ code, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+
+  const worstMeters = [...scoredMeters]
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 5);
+
+  const atRisk = [...scoredMeters]
+    .filter(m => m.score < threshold)
+    .sort((a, b) => a.score - b.score);
+
+  // ---------- FINALIZE BILLING SUMMARY ----------
+  const topBillingFlags = Object.entries(billingTally)
+    .map(([code, count]) => ({ code, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+
+  const worstBillingMeters = [...billingMeters]
+    .sort((a, b) => b.flagCount - a.flagCount)
+    .slice(0, 5);
+
+  // ---------- FINALIZE RISK MAP ----------
+  const riskMap = Object.values(buckets).map(b => {
+    const avg = b.meterCount === 0 ? 0 : b._scoreSum / b.meterCount;
+    const worst = [...b.meters].sort((x, y) => x.score - y.score).slice(0, 3);
+    delete b._scoreSum;
+    delete b.meters;
+
+    return {
+      key: b.key,
+      groupBy: b.groupBy,
+      meterCount: b.meterCount,
+      avgScore: Number(avg.toFixed(1)),
+      bandCounts: b.bandCounts,
+      worstMeters: worst
+    };
+  }).sort((a, b) => a.avgScore - b.avgScore);
+
+  // ---------- RESPONSE ----------
+  res.json({
+    since: sinceDate.toISOString(),
+    params: { limit, threshold, groupBy: safeGroupBy },
+
+    health: {
+      meterCount: scoredMeters.length,
+      avgScore: Number(avgScore.toFixed(1)),
+      bandCounts,
+      topIssues,
+      worstMeters
+    },
+
+    atRisk: {
+      threshold,
+      count: atRisk.length,
+      meters: atRisk
+    },
+
+    riskMap: {
+      groupBy: safeGroupBy,
+      bucketCount: riskMap.length,
+      buckets: riskMap
+    },
+
+    billing: {
+      topFlags: topBillingFlags,
+      worstMeters: worstBillingMeters
+    }
+  });
+});
+
 // -----------------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
