@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GridLens Smart MeterIQ Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 20px;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+            color: #60a5fa;
+        }
+        .subtitle { color: #94a3b8; margin-bottom: 30px; }
+        
+        /* Filters */
+        .filters {
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .filter-group label {
+            font-size: 0.875rem;
+            color: #94a3b8;
+            font-weight: 500;
+        }
+        .filter-group input,
+        .filter-group select {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid #334155;
+            background: #0f172a;
+            color: #e2e8f0;
+            font-size: 0.875rem;
+        }
+        button {
+            padding: 8px 16px;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            align-self: flex-end;
+        }
+        button:hover { background: #2563eb; }
+        
+        /* KPIs */
+        .kpi-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .kpi-card {
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #3b82f6;
+        }
+        .kpi-label {
+            font-size: 0.875rem;
+            color: #94a3b8;
+            margin-bottom: 5px;
+        }
+        .kpi-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #60a5fa;
+        }
+        
+        /* Charts */
+        .charts-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .chart-card {
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .chart-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #e2e8f0;
+        }
+        
+        /* Tables */
+        .table-card {
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th {
+            background: #0f172a;
+            padding: 12px;
+            text-align: left;
+            font-size: 0.875rem;
+            color: #94a3b8;
+            font-weight: 600;
+        }
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #334155;
+            font-size: 0.875rem;
+        }
+        tr:hover { background: #334155; }
+        
+        /* Badges */
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .badge-excellent { background: #22c55e; color: #000; }
+        .badge-good { background: #3b82f6; color: #fff; }
+        .badge-fair { background: #eab308; color: #000; }
+        .badge-poor { background: #f97316; color: #fff; }
+        .badge-critical { background: #ef4444; color: #fff; }
+        .badge-high { background: #ef4444; color: #fff; }
+        .badge-medium { background: #f97316; color: #fff; }
+        .badge-low { background: #eab308; color: #000; }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #94a3b8;
+        }
+        .error {
+            background: #7f1d1d;
+            color: #fecaca;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚡ GridLens Smart MeterIQ Dashboard</h1>
+        <p class="subtitle">Advanced Metering Infrastructure Monitoring & Analytics</p>
+        
+        <div class="filters">
+            <div class="filter-group">
+                <label>Days Back</label>
+                <input type="number" id="daysBack" value="7" min="1" max="90">
+            </div>
+            <div class="filter-group">
+                <label>At-Risk Threshold</label>
+                <input type="number" id="threshold" value="60" min="0" max="100">
+            </div>
+            <div class="filter-group">
+                <label>Group By</label>
+                <select id="groupBy">
+                    <option value="city">City</option>
+                    <option value="feeder">Feeder</option>
+                    <option value="zone">Zone</option>
+                    <option value="transformer">Transformer</option>
+                </select>
+            </div>
+            <button onclick="loadDashboard()">Refresh Dashboard</button>
+        </div>
+        
+        <div id="error-container"></div>
+        <div id="loading" class="loading">Loading dashboard...</div>
+        <div id="dashboard" style="display:none;">
+            <div class="kpi-row" id="kpis"></div>
+            
+            <div class="charts-row">
+                <div class="chart-card">
+                    <div class="chart-title">Fleet Health Bands</div>
+                    <canvas id="healthBandsChart"></canvas>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-title">Top Health Issues</div>
+                    <canvas id="topIssuesChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="table-card">
+                <div class="chart-title">At-Risk Meters</div>
+                <div id="atRiskTable"></div>
+            </div>
+            
+            <div class="table-card">
+                <div class="chart-title" id="riskMapTitle">Risk Map</div>
+                <div id="riskMapTable"></div>
+            </div>
+            
+            <div class="charts-row">
+                <div class="table-card">
+                    <div class="chart-title">Top Billing Flags</div>
+                    <div id="billingFlagsTable"></div>
+                </div>
+                <div class="table-card">
+                    <div class="chart-title">Worst Billing Meters</div>
+                    <div id="billingMetersTable"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let healthChart, issuesChart;
+        
+        async function loadDashboard() {
+            const loading = document.getElementById('loading');
+            const dashboard = document.getElementById('dashboard');
+            const errorContainer = document.getElementById('error-container');
+            
+            loading.style.display = 'block';
+            dashboard.style.display = 'none';
+            errorContainer.innerHTML = '';
+            
+            try {
+                const daysBack = parseInt(document.getElementById('daysBack').value);
+                const threshold = parseInt(document.getElementById('threshold').value);
+                const groupBy = document.getElementById('groupBy').value;
+                
+                const since = new Date();
+                since.setDate(since.getDate() - daysBack);
+                
+                const url = `/dashboard/overview?since=${since.toISOString()}&threshold=${threshold}&groupBy=${groupBy}&limit=200`;
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                renderDashboard(data);
+                
+                loading.style.display = 'none';
+                dashboard.style.display = 'block';
+            } catch (error) {
+                loading.style.display = 'none';
+                errorContainer.innerHTML = `<div class="error">Error loading dashboard: ${error.message}</div>`;
+            }
+        }
+        
+        function renderDashboard(data) {
+            renderKPIs(data.health, data.atRisk);
+            renderCharts(data.health);
+            renderAtRiskTable(data.atRisk);
+            renderRiskMapTable(data.riskMap);
+            renderBillingTables(data.billing);
+        }
+        
+        function renderKPIs(health, atRisk) {
+            const kpis = [
+                { label: 'Total Meters', value: health.meterCount },
+                { label: 'Avg Health Score', value: health.avgScore },
+                { label: 'At-Risk Meters', value: atRisk.count },
+                { label: 'Healthy (Excellent + Good)', value: health.bandCounts.excellent + health.bandCounts.good },
+                { label: 'Critical', value: health.bandCounts.critical }
+            ];
+            
+            document.getElementById('kpis').innerHTML = kpis.map(kpi => `
+                <div class="kpi-card">
+                    <div class="kpi-label">${kpi.label}</div>
+                    <div class="kpi-value">${kpi.value}</div>
+                </div>
+            `).join('');
+        }
+        
+        function renderCharts(health) {
+            const bandsData = {
+                labels: ['Excellent', 'Good', 'Fair', 'Poor', 'Critical'],
+                datasets: [{
+                    label: 'Meters',
+                    data: [
+                        health.bandCounts.excellent,
+                        health.bandCounts.good,
+                        health.bandCounts.fair,
+                        health.bandCounts.poor,
+                        health.bandCounts.critical
+                    ],
+                    backgroundColor: ['#22c55e', '#3b82f6', '#eab308', '#f97316', '#ef4444']
+                }]
+            };
+            
+            if (healthChart) healthChart.destroy();
+            healthChart = new Chart(document.getElementById('healthBandsChart'), {
+                type: 'bar',
+                data: bandsData,
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true, ticks: { color: '#94a3b8' } }, x: { ticks: { color: '#94a3b8' } } }
+                }
+            });
+            
+            const issuesData = {
+                labels: health.topIssues.map(i => i.code),
+                datasets: [{
+                    label: 'Count',
+                    data: health.topIssues.map(i => i.count),
+                    backgroundColor: '#3b82f6'
+                }]
+            };
+            
+            if (issuesChart) issuesChart.destroy();
+            issuesChart = new Chart(document.getElementById('topIssuesChart'), {
+                type: 'bar',
+                data: issuesData,
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true, ticks: { color: '#94a3b8' } }, x: { ticks: { color: '#94a3b8' } } }
+                }
+            });
+        }
+        
+        function renderAtRiskTable(atRisk) {
+            const container = document.getElementById('atRiskTable');
+            if (!atRisk.meters || atRisk.meters.length === 0) {
+                container.innerHTML = '<p style="color: #94a3b8; padding: 20px 0;">No at-risk meters found. All meters are healthy! 🎉</p>';
+                return;
+            }
+            
+            container.innerHTML = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Meter ID</th>
+                            <th>Score</th>
+                            <th>Band</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Issues</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${atRisk.meters.map(m => `
+                            <tr>
+                                <td><strong>${m.meterId}</strong></td>
+                                <td>${m.score}</td>
+                                <td><span class="badge badge-${m.band}">${m.band.toUpperCase()}</span></td>
+                                <td>${m.type}</td>
+                                <td>${m.status}</td>
+                                <td>${m.issues.length} issues</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+        
+        function renderRiskMapTable(riskMap) {
+            document.getElementById('riskMapTitle').textContent = `Risk Map by ${riskMap.groupBy}`;
+            const container = document.getElementById('riskMapTable');
+            
+            container.innerHTML = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>${riskMap.groupBy.toUpperCase()}</th>
+                            <th>Meters</th>
+                            <th>Avg Score</th>
+                            <th>Excellent</th>
+                            <th>Good</th>
+                            <th>Fair</th>
+                            <th>Poor</th>
+                            <th>Critical</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${riskMap.buckets.map(b => `
+                            <tr>
+                                <td><strong>${b.key}</strong></td>
+                                <td>${b.meterCount}</td>
+                                <td>${b.avgScore}</td>
+                                <td>${b.bandCounts.excellent}</td>
+                                <td>${b.bandCounts.good}</td>
+                                <td>${b.bandCounts.fair}</td>
+                                <td>${b.bandCounts.poor}</td>
+                                <td>${b.bandCounts.critical}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+        
+        function renderBillingTables(billing) {
+            document.getElementById('billingFlagsTable').innerHTML = `
+                <table>
+                    <thead><tr><th>Flag Code</th><th>Count</th></tr></thead>
+                    <tbody>
+                        ${billing.topFlags.map(f => `
+                            <tr><td>${f.code}</td><td>${f.count}</td></tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            
+            document.getElementById('billingMetersTable').innerHTML = `
+                <table>
+                    <thead><tr><th>Meter ID</th><th>Flag Count</th><th>Flags</th></tr></thead>
+                    <tbody>
+                        ${billing.worstMeters.map(m => `
+                            <tr>
+                                <td><strong>${m.meterId}</strong></td>
+                                <td>${m.flagCount}</td>
+                                <td>${m.flags.map(f => `<span class="badge badge-${f.level}">${f.code}</span>`).join(' ')}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+        
+        // Load on page load
+        loadDashboard();
+    </script>
+</body>
+</html>
