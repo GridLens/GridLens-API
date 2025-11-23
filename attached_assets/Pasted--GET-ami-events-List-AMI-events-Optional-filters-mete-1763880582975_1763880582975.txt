@@ -1,0 +1,98 @@
+// ---------------------------
+// GET /ami/events
+// List AMI events
+// Optional filters:
+//   ?meterId=MTR-1001
+//   ?eventType=comm_fail
+//   ?severity=high
+//   ?since=2025-11-01T00:00:00Z
+//   ?limit=50
+// ---------------------------
+app.get("/ami/events", (req, res) => {
+  const { meterId, eventType, severity, since } = req.query;
+  const limit = Number(req.query.limit || 100);
+
+  let results = amiEvents;
+
+  if (meterId) results = results.filter(e => e.meterId === meterId);
+  if (eventType) results = results.filter(e => e.eventType === eventType);
+  if (severity) results = results.filter(e => e.severity === severity);
+
+  if (since) {
+    const sinceDate = new Date(since);
+    if (!isNaN(sinceDate)) {
+      results = results.filter(e => new Date(e.occurredAt) >= sinceDate);
+    }
+  }
+
+  // newest first
+  results = results.sort(
+    (a, b) => new Date(b.occurredAt) - new Date(a.occurredAt)
+  );
+
+  res.json({
+    count: results.length,
+    data: results.slice(0, limit)
+  });
+});
+
+
+// ---------------------------
+// POST /ami/events
+// Ingest a new AMI event
+// Body example:
+// {
+//   "meterId": "MTR-1001",
+//   "eventType": "last_gasp",
+//   "severity": "high",
+//   "occurredAt": "2025-11-23T05:10:00Z",
+//   "meta": { "source": "headend" }
+// NOTE: id auto-generated if not provided
+// ---------------------------
+app.post("/ami/events", (req, res) => {
+  const {
+    id,
+    meterId,
+    eventType,
+    severity = "low",
+    occurredAt,
+    meta = {}
+  } = req.body || {};
+
+  // Basic validation
+  if (!meterId || !eventType || !occurredAt) {
+    return res.status(400).json({
+      error: "meterId, eventType, and occurredAt are required",
+      example: {
+        meterId: "MTR-1001",
+        eventType: "comm_fail",
+        severity: "medium",
+        occurredAt: "2025-11-23T05:10:00Z",
+        meta: { source: "headend" }
+      }
+    });
+  }
+
+  const dt = new Date(occurredAt);
+  if (isNaN(dt)) {
+    return res.status(400).json({
+      error: "occurredAt must be a valid ISO date string"
+    });
+  }
+
+  const newEvent = {
+    id: id || `EVT-${Date.now()}`,
+    meterId,
+    eventType,
+    severity,
+    occurredAt: dt.toISOString(),
+    meta
+  };
+
+  amiEvents.push(newEvent);
+
+  res.status(201).json({
+    message: "AMI event ingested",
+    data: newEvent
+  });
+});

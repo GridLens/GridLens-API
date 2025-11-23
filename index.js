@@ -44,23 +44,23 @@ const amiEvents = [
     meterId: "MTR-1001",
     eventType: "last_gasp",
     severity: "high",
-    occurredAt: "2025-11-21T09:00:00Z"
+    occurredAt: "2025-11-21T09:00:00Z",
+    meta: { source: "headend", note: "power loss" }
   },
   {
     id: "EVT-9002",
     meterId: "MTR-1002",
     eventType: "comm_fail",
     severity: "medium",
-    occurredAt: "2025-11-22T03:12:00Z"
+    occurredAt: "2025-11-22T03:12:00Z",
+    meta: { retries: 3 }
   }
 ];
 
 const usageReads = [
   { meterId: "MTR-1001", ts: "2025-11-22T00:00:00Z", kwh: 12.4 },
   { meterId: "MTR-1001", ts: "2025-11-22T01:00:00Z", kwh: 10.9 },
-  { meterId: "MTR-1001", ts: "2025-11-22T02:00:00Z", kwh: 11.7 },
-  { meterId: "MTR-1002", ts: "2025-11-22T00:00:00Z", gallons: 34 },
-  { meterId: "MTR-1002", ts: "2025-11-22T01:00:00Z", gallons: 0 }
+  { meterId: "MTR-1002", ts: "2025-11-22T00:00:00Z", gallons: 34 }
 ];
 
 // ----------------------------------
@@ -105,7 +105,7 @@ app.get("/health", (req, res) => {
 });
 
 // ---------------------------
-// ✅ 1) GET /meters
+// GET /meters
 // List all meters
 // Optional query: ?status=active&type=electric
 // ---------------------------
@@ -123,7 +123,7 @@ app.get("/meters", (req, res) => {
 });
 
 // ---------------------------
-// ✅ 2) GET /meter/:id
+// GET /meter/:id
 // Get one meter by id
 // ---------------------------
 app.get("/meter/:id", (req, res) => {
@@ -138,46 +138,260 @@ app.get("/meter/:id", (req, res) => {
 });
 
 // ---------------------------
-// ✅ 3) GET /ami/events
+// GET /ami/events
 // List AMI events
-// Optional filter: ?meterId=MTR-1001&eventType=comm_fail
+// Optional filters:
+//   ?meterId=MTR-1001
+//   ?eventType=comm_fail
+//   ?severity=high
+//   ?since=2025-11-01T00:00:00Z
+//   ?limit=50
 // ---------------------------
 app.get("/ami/events", (req, res) => {
-  const { meterId, eventType, severity } = req.query;
+  const { meterId, eventType, severity, since } = req.query;
+  const limit = Number(req.query.limit || 100);
 
   let results = amiEvents;
+
   if (meterId) results = results.filter(e => e.meterId === meterId);
   if (eventType) results = results.filter(e => e.eventType === eventType);
   if (severity) results = results.filter(e => e.severity === severity);
 
+  if (since) {
+    const sinceDate = new Date(since);
+    if (!isNaN(sinceDate)) {
+      results = results.filter(e => new Date(e.occurredAt) >= sinceDate);
+    }
+  }
+
+  // newest first
+  results = results.sort(
+    (a, b) => new Date(b.occurredAt) - new Date(a.occurredAt)
+  );
+
   res.json({
     count: results.length,
-    data: results
+    data: results.slice(0, limit)
   });
 });
 
 // ---------------------------
-// ✅ 4) GET /usage/:meter
-// Usage reads for a given meter
-// Optional query: ?limit=24
+// POST /ami/events
+// Ingest a new AMI event
+// Body example:
+// {
+//   "meterId": "MTR-1001",
+//   "eventType": "last_gasp",
+//   "severity": "high",
+//   "occurredAt": "2025-11-23T05:10:00Z",
+//   "meta": { "source": "headend" }
+// }
+// NOTE: id auto-generated if not provided
+// ---------------------------
+app.post("/ami/events", (req, res) => {
+  const {
+    id,
+    meterId,
+    eventType,
+    severity = "low",
+    occurredAt,
+    meta = {}
+  } = req.body || {};
+
+  // Basic validation
+  if (!meterId || !eventType || !occurredAt) {
+    return res.status(400).json({
+      error: "meterId, eventType, and occurredAt are required",
+      example: {
+        meterId: "MTR-1001",
+        eventType: "comm_fail",
+        severity: "medium",
+        occurredAt: "2025-11-23T05:10:00Z",
+        meta: { source: "headend" }
+      }
+    });
+  }
+
+  const dt = new Date(occurredAt);
+  if (isNaN(dt)) {
+    return res.status(400).json({
+      error: "occurredAt must be a valid ISO date string"
+    });
+  }
+
+  const newEvent = {
+    id: id || `EVT-${Date.now()}`,
+    meterId,
+    eventType,
+    severity,
+    occurredAt: dt.toISOString(),
+    meta
+  };
+
+  amiEvents.push(newEvent);
+
+  res.status(201).json({
+    message: "AMI event ingested",
+    data: newEvent
+  });
+});
+
+// ---------------------------
+// GET /usage/:meter
+// Get usage reads for a given meter
+// Optional filters:
+//   ?limit=24
+//   ?since=2025-11-01T00:00:00Z
+//   ?until=2025-11-23T00:00:00Z
 // ---------------------------
 app.get("/usage/:meter", (req, res) => {
   const { meter } = req.params;
-  const limit = Number(req.query.limit || 24);
+  const limit = Number(req.query.limit || 100);
+  const { since, until } = req.query;
 
-  const reads = usageReads
-    .filter(r => r.meterId === meter)
-    .slice(-limit);
+  let reads = usageReads.filter(r => r.meterId === meter);
+
+  if (since) {
+    const sinceDate = new Date(since);
+    if (!isNaN(sinceDate)) {
+      reads = reads.filter(r => new Date(r.ts) >= sinceDate);
+    }
+  }
+
+  if (until) {
+    const untilDate = new Date(until);
+    if (!isNaN(untilDate)) {
+      reads = reads.filter(r => new Date(r.ts) <= untilDate);
+    }
+  }
+
+  // oldest → newest
+  reads = reads.sort((a, b) => new Date(a.ts) - new Date(b.ts));
 
   res.json({
     meterId: meter,
     count: reads.length,
-    data: reads
+    data: reads.slice(-limit)
   });
 });
 
 // ---------------------------
-// ✅ 5) GET /billing/flags
+// POST /usage/:meter
+// Ingest ONE usage read for a meter
+// Body example (electric):
+// { "ts":"2025-11-23T05:10:00Z", "kwh": 14.2 }
+//
+// Body example (water):
+// { "ts":"2025-11-23T05:10:00Z", "gallons": 55 }
+//
+// If meterId is in body, it must match route.
+// ---------------------------
+app.post("/usage/:meter", (req, res) => {
+  const { meter } = req.params;
+  const { ts, kwh, gallons, meterId } = req.body || {};
+
+  // meterId consistency check
+  if (meterId && meterId !== meter) {
+    return res.status(400).json({
+      error: "meterId in body must match /usage/:meter route param",
+      routeMeter: meter,
+      bodyMeter: meterId
+    });
+  }
+
+  if (!ts) {
+    return res.status(400).json({
+      error: "ts is required (ISO date string)",
+      exampleElectric: { ts: "2025-11-23T05:10:00Z", kwh: 14.2 },
+      exampleWater: { ts: "2025-11-23T05:10:00Z", gallons: 55 }
+    });
+  }
+
+  const dt = new Date(ts);
+  if (isNaN(dt)) {
+    return res.status(400).json({ error: "ts must be a valid ISO date" });
+  }
+
+  // must supply either kwh or gallons
+  const hasKwh = typeof kwh === "number";
+  const hasGallons = typeof gallons === "number";
+  if (!hasKwh && !hasGallons) {
+    return res.status(400).json({
+      error: "Provide kwh (number) or gallons (number)."
+    });
+  }
+
+  const newRead = {
+    meterId: meter,
+    ts: dt.toISOString(),
+    ...(hasKwh ? { kwh } : {}),
+    ...(hasGallons ? { gallons } : {})
+  };
+
+  usageReads.push(newRead);
+
+  res.status(201).json({
+    message: "Usage read ingested",
+    data: newRead
+  });
+});
+
+// ---------------------------
+// POST /usage/:meter/bulk
+// Ingest MULTIPLE reads at once
+// Body example:
+// {
+//   "reads":[
+//     {"ts":"2025-11-23T00:00:00Z","kwh":12.1},
+//     {"ts":"2025-11-23T01:00:00Z","kwh":11.8}
+//   ]
+// }
+// ---------------------------
+app.post("/usage/:meter/bulk", (req, res) => {
+  const { meter } = req.params;
+  const { reads } = req.body || {};
+
+  if (!Array.isArray(reads) || reads.length === 0) {
+    return res.status(400).json({
+      error: "reads must be a non-empty array"
+    });
+  }
+
+  const inserted = [];
+  const rejected = [];
+
+  reads.forEach((r, idx) => {
+    const dt = new Date(r.ts);
+    const hasKwh = typeof r.kwh === "number";
+    const hasGallons = typeof r.gallons === "number";
+
+    if (!r.ts || isNaN(dt) || (!hasKwh && !hasGallons)) {
+      rejected.push({ index: idx, reason: "invalid read", read: r });
+      return;
+    }
+
+    const newRead = {
+      meterId: meter,
+      ts: dt.toISOString(),
+      ...(hasKwh ? { kwh: r.kwh } : {}),
+      ...(hasGallons ? { gallons: r.gallons } : {})
+    };
+
+    usageReads.push(newRead);
+    inserted.push(newRead);
+  });
+
+  res.status(201).json({
+    message: "Bulk usage ingestion complete",
+    insertedCount: inserted.length,
+    rejectedCount: rejected.length,
+    inserted,
+    rejected
+  });
+});
+
+// ---------------------------
+// GET /billing/flags
 // Run Billing Integrity Engine for all meters
 // Returns flags per meter
 // ---------------------------
