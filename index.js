@@ -28,13 +28,19 @@ const authMiddleware = (req, res, next) => {
     return next();
   }
 
-  // Check Authorization header
+  // Temporary protection: Allow all GET requests (read-only), require auth for writes
+  // This keeps the dashboard working while blocking external write access
+  if (req.method === 'GET') {
+    return next();
+  }
+
+  // Require API key for POST, PATCH, DELETE operations
   const authHeader = req.headers.authorization;
   
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ 
       error: 'Unauthorized', 
-      message: 'API key required. Provide as: Authorization: Bearer YOUR_API_KEY' 
+      message: 'API key required for write operations. Provide as: Authorization: Bearer YOUR_API_KEY' 
     });
   }
 

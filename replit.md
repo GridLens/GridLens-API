@@ -18,7 +18,7 @@ Preferred communication style: Simple, everyday language.
 - **Runtime**: Node.js with ES Modules (type: "module")
 - **Framework**: Express.js 4.18.2 for REST API
 - **Language**: JavaScript (ES6+)
-- **Port**: 3000
+- **Port**: 5000 (webview-compatible)
 
 **Current Data Layer**
 The system uses in-memory data structures for MVP development. Three primary data entities exist:
@@ -160,17 +160,49 @@ node index.js
 
 **Testing Endpoints**
 ```bash
-curl http://localhost:3000/health
-curl http://localhost:3000/meters?status=active
-curl http://localhost:3000/ami/events
-curl http://localhost:3000/billing/flags
+# Read operations (no auth required)
+curl http://localhost:5000/health
+curl http://localhost:5000/meters?status=active
+curl http://localhost:5000/ami/events
+curl http://localhost:5000/billing/flags
+
+# Write operations (require API key)
+curl -H "Authorization: Bearer YOUR_API_KEY" -X POST http://localhost:5000/ami/events -H "Content-Type: application/json" -d '{"meterId":"MTR-1001",...}'
 ```
 
+## Security
+
+**Temporary API Protection** (November 23, 2025)
+- **Read Operations**: All GET endpoints are publicly accessible (no authentication required)
+- **Write Operations**: POST, PATCH, DELETE endpoints require API key authentication
+- **Authentication Method**: Bearer token in Authorization header (`Authorization: Bearer YOUR_API_KEY`)
+- **API Key Storage**: `GRIDLENS_API_KEY` secret in Replit environment
+- **Dashboard Access**: Public HTML dashboard remains fully accessible at `/dashboard.html`
+- **Rationale**: Protects data modification while keeping read access open for dashboard and monitoring
+
+**To Disable Security**: Delete the `GRIDLENS_API_KEY` secret from Replit environment
+
+## Frontend Dashboard
+
+**Live Interactive Dashboard** (`/dashboard.html`)
+- **Location**: Served from `/public` directory via express.static
+- **Features**: Real-time KPI cards, Chart.js visualizations, interactive filters, responsive design
+- **Data Source**: Calls `/dashboard/overview` endpoint for bundled analytics
+- **Public Access**: Dashboard is always accessible without authentication
+- **Visualization Library**: Chart.js 4.4.0 from CDN
+
 ## Recent Changes
+
+**November 23, 2025 - Session 3: Security & Access Control**
+- Added temporary API authentication middleware (read-only public access, write operations require API key)
+- Migrated server from port 3000 to 5000 for Replit webview compatibility
+- Configured Express to bind to 0.0.0.0 for external access
+- Dashboard remains publicly accessible while protecting write operations
 
 **November 23, 2025 - Session 2: Dashboard & Analytics**
 - Added `/meters/risk-map` endpoint - Group meter health by location/infrastructure (city, feeder, zone, transformer)
 - Added `/dashboard/overview` endpoint - Comprehensive dashboard data bundle for Retool integration
+- Built live HTML dashboard with Chart.js visualizations, KPI cards, and interactive filters
 - API now has 15 total endpoints providing complete meter monitoring and analytics capabilities
 
 **November 23, 2025 - Session 1: Core API Development**
