@@ -3,9 +3,9 @@
  * Express server + endpoints
  */
 
-import express from "express";
-
+const express = require("express");
 const app = express();
+
 app.use(express.json());
 
 // -----------------------------
@@ -64,7 +64,7 @@ const usageReads = [
 ];
 
 // ----------------------------------
-// Simple "engines" (MVP placeholders)
+// Simple “engines” (MVP placeholders)
 // ----------------------------------
 function buildBillingFlags(meter, reads) {
   const flags = [];
@@ -201,5 +201,5 @@ app.get("/billing/flags", (req, res) => {
 // -----------------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 GridLens API running on port ${PORT}`);
+  console.log(`🚀 API running on port ${PORT}`);
 });
