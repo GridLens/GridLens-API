@@ -1,0 +1,260 @@
+================================================================================
+GRIDLENS SMART METERIQ MVP DASHBOARD - RETOOL SPECIFICATION
+================================================================================
+
+Build a complete Retool dashboard app named "GridLens Smart MeterIQ MVP Dashboard"
+using the live API at: https://workspace.cdean5.repl.co:3000
+
+================================================================================
+1. CREATE REST API RESOURCE
+================================================================================
+
+Resource Name: GridLensAPI
+Base URL: https://workspace.cdean5.repl.co:3000
+Authentication: None
+
+================================================================================
+2. CREATE MAIN QUERY
+================================================================================
+
+Query Name: qOverview
+Type: GET
+Endpoint: /dashboard/overview
+
+Query Parameters:
+  since = {{ sincePicker.value }}
+  threshold = {{ thresholdInput.value }}
+  groupBy = {{ groupBySelect.value }}
+  limit = 200
+
+Settings:
+  ☑ Run query on page load
+  ☑ Automatically run query when inputs change
+
+================================================================================
+3. TOP FILTER BAR
+================================================================================
+
+Create a horizontal container at the top with 3 input controls:
+
+A) DateTime Picker
+   Component Name: sincePicker
+   Default Value: {{ moment().subtract(7,"days") }}
+   
+B) Number Input
+   Component Name: thresholdInput
+   Default Value: 60
+   Label: "At-Risk Threshold"
+   
+C) Dropdown
+   Component Name: groupBySelect
+   Options: ["city", "feeder", "zone", "transformer"]
+   Default Value: "city"
+   Label: "Group By"
+
+All inputs should trigger qOverview to rerun automatically.
+
+================================================================================
+4. KPI METRIC ROW
+================================================================================
+
+Below filters, add a horizontal container with 5 Stat components:
+
+STAT 1 - Total Meters
+  Label: "Total Meters"
+  Value: {{ qOverview.data.health.meterCount }}
+
+STAT 2 - Average Health Score
+  Label: "Avg Health Score"
+  Value: {{ qOverview.data.health.avgScore }}
+
+STAT 3 - At-Risk Meters
+  Label: "At-Risk Meters"
+  Value: {{ qOverview.data.atRisk.count }}
+
+STAT 4 - Healthy Meters
+  Label: "Healthy (Excellent + Good)"
+  Value: {{ qOverview.data.health.bandCounts.excellent + qOverview.data.health.bandCounts.good }}
+
+STAT 5 - Critical Meters
+  Label: "Critical"
+  Value: {{ qOverview.data.health.bandCounts.critical }}
+
+================================================================================
+5. FLEET HEALTH CHARTS (SIDE BY SIDE)
+================================================================================
+
+Create a horizontal container with 2 bar charts:
+
+A) BAR CHART - Fleet Health Bands
+   Title: "Fleet Health Bands"
+   Data Source:
+   {{
+   [
+     { band:"excellent", count:qOverview.data.health.bandCounts.excellent },
+     { band:"good", count:qOverview.data.health.bandCounts.good },
+     { band:"fair", count:qOverview.data.health.bandCounts.fair },
+     { band:"poor", count:qOverview.data.health.bandCounts.poor },
+     { band:"critical", count:qOverview.data.health.bandCounts.critical }
+   ]
+   }}
+   X-Axis: band
+   Y-Axis: count
+
+B) BAR CHART - Top Health Issues
+   Title: "Top Health Issues"
+   Data Source: {{ qOverview.data.health.topIssues }}
+   X-Axis: code
+   Y-Axis: count
+
+================================================================================
+6. AT-RISK METERS TABLE
+================================================================================
+
+Component Name: atRiskTable
+Title: "At-Risk Meters"
+Data Source: {{ qOverview.data.atRisk.meters }}
+
+Columns:
+  - meterId
+  - score
+  - band
+  - type
+  - status
+  - issues
+
+Sort: score (ascending)
+
+Conditional Formatting on "score" column:
+  - If score < 40: Red background
+  - If score < 60: Orange background
+  - Else: Yellow background
+
+================================================================================
+7. RISK MAP TABLE
+================================================================================
+
+Component Name: riskMapTable
+Title: "Risk Map by {{ qOverview.data.riskMap.groupBy }}"
+Data Source: {{ qOverview.data.riskMap.buckets }}
+
+Columns:
+  - key
+  - meterCount
+  - avgScore
+  - bandCounts.excellent
+  - bandCounts.good
+  - bandCounts.fair
+  - bandCounts.poor
+  - bandCounts.critical
+
+================================================================================
+8. BILLING RISK PANEL (SIDE BY SIDE TABLES)
+================================================================================
+
+Create a horizontal container with 2 tables:
+
+A) TABLE - Top Billing Flags
+   Component Name: billingTopFlags
+   Title: "Top Billing Flags"
+   Data Source: {{ qOverview.data.billing.topFlags }}
+   Columns: code, count
+
+B) TABLE - Worst Billing Meters
+   Component Name: billingWorstMeters
+   Title: "Meters With Most Billing Flags"
+   Data Source: {{ qOverview.data.billing.worstMeters }}
+   Columns: meterId, flagCount, flags
+
+================================================================================
+9. DRILL-DOWN PANEL (OPTIONAL)
+================================================================================
+
+Create a temporary state variable:
+  Name: selectedMeterId
+  Default: null
+
+In the atRiskTable component:
+  Event: Row Click
+  Action: Set selectedMeterId = {{ atRiskTable.selectedRow.data.meterId }}
+
+Add a JSON Explorer component:
+  Title: "Selected Meter Detail"
+  Data Source: {{ qOverview.data.atRisk.meters.find(m => m.meterId === selectedMeterId) }}
+
+================================================================================
+10. THEME & LAYOUT
+================================================================================
+
+Theme: Dark theme
+Layout Structure:
+  - Top: Filter bar (horizontal)
+  - Row 2: KPI stats (5 across)
+  - Row 3: Charts (2 side by side)
+  - Row 4: At-Risk table (full width)
+  - Row 5: Risk Map table (full width)
+  - Row 6: Billing tables (2 side by side)
+  - Bottom: Drill-down panel (if implemented)
+
+Make all containers responsive.
+
+================================================================================
+TESTING YOUR DASHBOARD
+================================================================================
+
+Once built, test these scenarios:
+
+1. Change sincePicker to different dates - verify data updates
+2. Adjust thresholdInput to 50 - should see more at-risk meters
+3. Change groupBySelect to "feeder" - verify risk map grouping changes
+4. Click rows in At-Risk table - verify drill-down panel shows details
+5. Verify all charts render correctly
+6. Check that all KPI stats display numbers
+
+================================================================================
+API ENDPOINT REFERENCE
+================================================================================
+
+Base URL: https://workspace.cdean5.repl.co:3000
+
+Main Endpoint: GET /dashboard/overview
+
+Query Parameters:
+  - since (ISO date string, optional, default: 7 days ago)
+  - threshold (number 0-100, optional, default: 60)
+  - groupBy (string: city|feeder|zone|transformer, optional, default: city)
+  - limit (number, optional, default: 200)
+
+Example:
+https://workspace.cdean5.repl.co:3000/dashboard/overview?threshold=50&groupBy=feeder
+
+Response Structure:
+{
+  "since": "ISO date",
+  "params": { "limit", "threshold", "groupBy" },
+  "health": {
+    "meterCount": number,
+    "avgScore": number,
+    "bandCounts": { excellent, good, fair, poor, critical },
+    "topIssues": [{ code, count }],
+    "worstMeters": [...]
+  },
+  "atRisk": {
+    "threshold": number,
+    "count": number,
+    "meters": [{ meterId, score, band, type, status, issues }]
+  },
+  "riskMap": {
+    "groupBy": string,
+    "bucketCount": number,
+    "buckets": [{ key, meterCount, avgScore, bandCounts, worstMeters }]
+  },
+  "billing": {
+    "topFlags": [{ code, count }],
+    "worstMeters": [{ meterId, flagCount, flags }]
+  }
+}
+
+================================================================================
+END OF SPECIFICATION
+================================================================================
