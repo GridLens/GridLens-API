@@ -12,6 +12,46 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(express.json());
+
+// Temporary API authentication middleware
+const authMiddleware = (req, res, next) => {
+  // Allow public access to dashboard HTML and static assets
+  if (req.path.startsWith('/dashboard') || req.path.match(/\.(html|css|js|png|jpg|svg)$/)) {
+    return next();
+  }
+
+  // Check for API key
+  const apiKey = process.env.GRIDLENS_API_KEY;
+  
+  // If no API key is set, allow access (auth disabled)
+  if (!apiKey) {
+    return next();
+  }
+
+  // Check Authorization header
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      error: 'Unauthorized', 
+      message: 'API key required. Provide as: Authorization: Bearer YOUR_API_KEY' 
+    });
+  }
+
+  const providedKey = authHeader.substring(7); // Remove 'Bearer ' prefix
+  
+  if (providedKey !== apiKey) {
+    return res.status(403).json({ 
+      error: 'Forbidden', 
+      message: 'Invalid API key' 
+    });
+  }
+
+  next();
+};
+
+// Apply authentication to all routes
+app.use(authMiddleware);
 app.use(express.static(path.join(__dirname, "public")));
 
 // -----------------------------
