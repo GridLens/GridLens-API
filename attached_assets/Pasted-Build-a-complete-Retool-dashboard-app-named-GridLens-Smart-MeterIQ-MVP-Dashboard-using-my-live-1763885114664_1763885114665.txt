@@ -1,0 +1,164 @@
+Build a complete Retool dashboard app named **"GridLens Smart MeterIQ MVP Dashboard"** using my live API:
+
+Base URL:
+https://workspace.cdean5.repl.co:3000
+
+-----------------------------------------
+1. CREATE RESOURCE
+-----------------------------------------
+Create a REST API resource named **GridLensAPI** with base URL above, no authentication.
+
+-----------------------------------------
+2. MAIN QUERY
+-----------------------------------------
+Create a GET query named **qOverview** that calls:
+**/dashboard/overview**
+
+Bind parameters to UI controls:
+- since = {{ sincePicker.value }}
+- threshold = {{ thresholdInput.value }}
+- groupBy = {{ groupBySelect.value }}
+- limit = 200
+
+Enable:
+- Run query on page load
+- Rerun query automatically when inputs change
+
+-----------------------------------------
+3. TOP FILTER BAR
+-----------------------------------------
+At the top of the dashboard, create a horizontal container containing:
+
+A) A DateTime Picker named **sincePicker**  
+   Default value: {{ moment().subtract(7,"days") }}
+
+B) A Number Input named **thresholdInput**  
+   Default: 60
+
+C) A Dropdown named **groupBySelect**  
+   Values: ["city","feeder","zone","transformer"]  
+   Default: "city"
+
+All should trigger an automatic refresh of qOverview.
+
+-----------------------------------------
+4. KPI METRIC ROW
+-----------------------------------------
+Below the filters, add a horizontal container with **5 Stat components**:
+
+STAT 1 — Total Meters  
+Value: {{ qOverview.data.health.meterCount }}
+
+STAT 2 — Avg Health Score  
+Value: {{ qOverview.data.health.avgScore }}
+
+STAT 3 — At-Risk Meters  
+Value: {{ qOverview.data.atRisk.count }}
+
+STAT 4 — Healthy (Excellent + Good)  
+Value: {{ qOverview.data.health.bandCounts.excellent + qOverview.data.health.bandCounts.good }}
+
+STAT 5 — Critical  
+Value: {{ qOverview.data.health.bandCounts.critical }}
+
+-----------------------------------------
+5. FLEET HEALTH CHARTS
+-----------------------------------------
+
+A) Add a **Bar Chart** titled “Fleet Health Bands” with data:
+{{
+[
+ { band:"excellent", count:qOverview.data.health.bandCounts.excellent },
+ { band:"good", count:qOverview.data.health.bandCounts.good },
+ { band:"fair", count:qOverview.data.health.bandCounts.fair },
+ { band:"poor", count:qOverview.data.health.bandCounts.poor },
+ { band:"critical", count:qOverview.data.health.bandCounts.critical }
+]
+}}
+X-axis: band  
+Y-axis: count
+
+B) Add a second **Bar Chart** titled “Top Health Issues”  
+Data: {{ qOverview.data.health.topIssues }}  
+X-axis: code  
+Y-axis: count
+
+-----------------------------------------
+6. AT-RISK METERS TABLE
+-----------------------------------------
+Create a table named **atRiskTable** with data:
+{{ qOverview.data.atRisk.meters }}
+
+Columns:
+- meterId
+- score
+- band
+- type
+- status
+- issues
+
+Sort by score ascending.
+
+Add conditional formatting on `score`:
+- <40 = red
+- <60 = orange
+- else = yellow
+
+-----------------------------------------
+7. RISK MAP TABLE
+-----------------------------------------
+Create a table named **riskMapTable** with data:
+{{ qOverview.data.riskMap.buckets }}
+
+Columns:
+- key
+- meterCount
+- avgScore
+- bandCounts.excellent
+- bandCounts.good
+- bandCounts.fair
+- bandCounts.poor
+- bandCounts.critical
+
+Title:
+“Risk Map by {{ qOverview.data.riskMap.groupBy }}”
+
+-----------------------------------------
+8. BILLING RISK PANEL
+-----------------------------------------
+Create a horizontal container with two tables:
+
+A) Table “billingTopFlags”  
+   Data: {{ qOverview.data.billing.topFlags }}  
+   Columns: code, count  
+   Title: Top Billing Flags
+
+B) Table “billingWorstMeters”  
+   Data: {{ qOverview.data.billing.worstMeters }}  
+   Columns: meterId, flagCount, flags  
+   Title: Meters With Most Billing Flags
+
+-----------------------------------------
+9. DRILL-DOWN PANEL (OPTIONAL BUT RECOMMENDED)
+-----------------------------------------
+Create a temporary state named **selectedMeterId**.
+
+In the At-Risk table:
+On Row Click → set selectedMeterId = the clicked meterId:
+{{ atRiskTable.selectedRow.data.meterId }}
+
+Add a **JSON Explorer** titled “Meter Detail” with data:
+{{ qOverview.data.atRisk.meters.find(m => m.meterId === selectedMeterId) }}
+
+-----------------------------------------
+10. THEME + LAYOUT
+-----------------------------------------
+Apply dark theme.  
+Ensure all containers are responsive.  
+Left panels: tables  
+Right panels: charts  
+Top: KPI stats & filters.
+
+-----------------------------------------
+END
+-----------------------------------------
