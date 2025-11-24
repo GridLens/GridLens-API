@@ -1,0 +1,227 @@
+I need you to UPGRADE ONLY my existing drill-down modal. 
+Do not modify any other dashboard components, charts, or tables outside the modal system.
+
+Use my existing IQOverview query and selectedMeter / selectedMeterDetails state logic if present.
+If names differ, detect and match automatically.
+
+GOALS FOR THIS SCRIPT:
+- Convert modal into a premium tabbed modal
+- Add per-meter health/usage timeline chart
+- Add AMI Events viewer tab
+- Add Billing Investigation tab
+- Add AI “Recommended Action” tab
+- Keep dark theme styling and current bindings intact
+- Modal still opens from row-click in At-Risk and Worst-10 tables
+
+===================================================
+1) ENSURE SELECTED METER STATE EXISTS
+===================================================
+If not already present, create:
+- Temporary state: selectedMeter (default null)
+
+If selectedMeterDetails transformer exists, reuse it.
+If not, create transformer selectedMeterDetails:
+
+Code:
+const row = selectedMeter.value;
+const meters = IQOverview.data?.meters || IQOverview.data?.atRiskMeters || [];
+if (!row) return null;
+const id = row.meterId ?? row.meter_id;
+const found = meters.find(m => (m.meterId ?? m.meter_id) === id);
+return found || row;
+
+===================================================
+2) UPGRADE/CREATE MODAL
+===================================================
+- Modal name: meterDetailsModal
+- Title: "Meter Details"
+- Dark theme preserved.
+
+Inside modal:
+A) Add a Tabs component named meterDetailsTabs with 5 tabs:
+   1. Overview
+   2. Health Trend
+   3. AMI Events
+   4. Billing Investigation
+   5. Recommended Action
+
+===================================================
+3) TAB 1 — OVERVIEW (summary + raw json)
+===================================================
+Inside Overview tab add:
+
+A) Text components:
+Meter:
+{{ selectedMeterDetails.value?.meterId ?? selectedMeterDetails.value?.meter_id ?? "—" }}
+
+Health Score:
+{{ selectedMeterDetails.value?.score ?? "—" }}
+
+Band:
+{{ selectedMeterDetails.value?.band ?? "—" }}
+
+Issues:
+{{ selectedMeterDetails.value?.issues?.join(", ") ?? selectedMeterDetails.value?.issues ?? "None" }}
+
+Last Read Time:
+{{ selectedMeterDetails.value?.lastReadTs ?? selectedMeterDetails.value?.last_read_ts ?? "—" }}
+
+B) JSON Explorer:
+Name: selectedMeterJson
+Data:
+{{ selectedMeterDetails.value }}
+
+===================================================
+4) TAB 2 — HEALTH TREND (timeline chart)
+===================================================
+Goal: Show last 30 readings or health points for this meter.
+
+A) Create transformer selectedMeterTrend:
+
+Code:
+const m = selectedMeterDetails.value || {};
+return (
+  m.trend ||
+  m.usageTrend ||
+  m.healthTrend ||
+  m.lastReads ||
+  m.reads ||
+  []
+);
+
+B) Add a Line Chart named meterTrendChart:
+- Data:
+  {{ selectedMeterTrend.value }}
+- X field (auto-detect):
+  ts or timestamp or date
+- Y field:
+  value or usage or score
+- If chart needs explicit mapping, map series to [{x:ts, y:value}].
+
+C) Add small helper text under chart:
+"Trend is derived from meter trend/usage history if available."
+
+===================================================
+5) TAB 3 — AMI EVENTS VIEWER
+===================================================
+Goal: show events for this meter if events are present in IQOverview response.
+
+A) Transformer selectedMeterAMIEvents:
+
+Code:
+const m = selectedMeterDetails.value || {};
+return (
+  m.amiEvents ||
+  m.events ||
+  m.ami_events ||
+  []
+);
+
+B) Add a Table named meterAmiEventsTable:
+- Data:
+  {{ selectedMeterAMIEvents.value }}
+- Columns:
+  eventCode / code,
+  ts / timestamp,
+  severity (if present),
+  description (if present)
+
+If no events, show empty state text:
+"No AMI events found for this meter."
+
+===================================================
+6) TAB 4 — BILLING INVESTIGATION
+===================================================
+Goal: show billing flags, gaps, mismatch, estimation patterns.
+
+A) Transformer selectedMeterBillingFlags:
+
+Code:
+const m = selectedMeterDetails.value || {};
+return (
+  m.billingFlags ||
+  m.flags ||
+  m.billing_flags ||
+  []
+);
+
+B) Add two components:
+
+1) Table name: meterBillingFlagsTable
+   Data:
+   {{ selectedMeterBillingFlags.value }}
+   Columns:
+   flagType/type, count, firstSeen, lastSeen, notes (if present)
+
+2) Text block (summary):
+Billing Summary:
+{{ 
+  selectedMeterDetails.value?.billingSummary ||
+  selectedMeterDetails.value?.billing_summary ||
+  "No billing summary available"
+}}
+
+If no flags, show empty state:
+"No billing risks detected for this meter."
+
+===================================================
+7) TAB 5 — RECOMMENDED ACTION (AI logic)
+===================================================
+Goal: produce a simple recommended action based on score/band/issues/flags.
+
+A) Transformer recommendedAction:
+
+Code:
+const m = selectedMeterDetails.value || {};
+const score = m.score ?? 100;
+const band = (m.band || "").toLowerCase();
+const issues = m.issues || [];
+const flags = m.billingFlags || m.flags || [];
+
+let action = [];
+let priority = "Normal";
+
+if (band === "critical" || score < 50) {
+  priority = "Critical";
+  action.push("Dispatch field crew to inspect meter immediately.");
+}
+if (issues.includes("dead_ami_radio") || issues.includes("communication_failures")) {
+  action.push("Check AMI radio, antenna, and network path; attempt re-commission.");
+}
+if (issues.includes("stuck_meter") || issues.includes("flatline_usage")) {
+  action.push("Verify meter is registering; likely replacement required.");
+}
+if (issues.includes("reversed_meter")) {
+  action.push("Inspect service wiring and meter polarity; correct reverse install.");
+}
+if (flags.length > 0) {
+  action.push("Review recent bills vs reads; correct estimation/back-billing risk.");
+}
+if (action.length === 0) {
+  action.push("No immediate action needed. Continue monitoring.");
+}
+
+return { priority, action };
+
+B) Add a Stat/Badge:
+Priority:
+{{ recommendedAction.value.priority }}
+
+C) Add Text component:
+Recommended Actions:
+{{ recommendedAction.value.action.join(" ") }}
+
+===================================================
+8) KEEP MODAL OPENING FROM TABLES
+===================================================
+Ensure any existing row-click handlers that open meterDetailsModal remain in place.
+Also add the same row-click open behavior to Worst-10 tables if they exist.
+
+Row click behavior:
+- Set selectedMeter = {{ currentRow }}
+- Open meterDetailsModal
+
+===================================================
+DONE
+===================================================
+Do not alter other components outside the modal upgrade.

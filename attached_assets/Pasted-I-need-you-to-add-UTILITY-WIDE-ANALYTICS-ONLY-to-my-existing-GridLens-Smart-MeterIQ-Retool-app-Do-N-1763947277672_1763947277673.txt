@@ -1,0 +1,203 @@
+I need you to add UTILITY-WIDE ANALYTICS ONLY to my existing GridLens Smart MeterIQ Retool app.
+Do NOT modify my drill-down modal system or any components inside meterDetailsModal.
+Do NOT delete or break my existing charts/tables — only add new utility-level features.
+Keep dark theme styling.
+
+Use IQOverview as the base query.
+If component names differ, detect + match automatically.
+
+===================================================
+1) UTILITY SELECTOR (GLOBAL FILTER)
+===================================================
+Goal: Allow switching utilities in dashboard quickly.
+
+A) Add a Dropdown at top (near header) named utilitySelect
+- Label: "Utility"
+- Values should come from IQOverview if available. If not, infer from riskMap buckets.
+
+Create transformer utilitiesList:
+
+Code:
+const buckets = IQOverview.data?.riskMap?.buckets || [];
+const fromBuckets = buckets.map(b => b.utilityName ?? b.utility ?? b.name).filter(Boolean);
+const fromMeters = (IQOverview.data?.meters || []).map(m => m.utilityName ?? m.utility).filter(Boolean);
+const list = [...new Set([...fromBuckets, ...fromMeters])];
+return list.length ? list : ["All"];
+
+Bind dropdown values to:
+{{ utilitiesList.value }}
+
+Default value:
+{{ utilitiesList.value[0] || "All" }}
+
+B) Transformer filteredMetersByUtility
+
+Code:
+const meters = IQOverview.data?.meters || [];
+const sel = utilitySelect.value;
+if (!sel || sel === "All") return meters;
+return meters.filter(m => (m.utilityName ?? m.utility ?? "") === sel);
+
+===================================================
+2) UTILITY HEALTH SCORE KPI
+===================================================
+Goal: One aggregated health score for the selected utility.
+
+A) Transformer utilityHealthScore
+
+Code:
+const meters = filteredMetersByUtility.value || [];
+if (!meters.length) return { avgScore: 0, critical: 0, warning: 0, healthy: 0, total: 0 };
+
+let sum=0, critical=0, warning=0, healthy=0;
+meters.forEach(m=>{
+  const s = m.score ?? 100;
+  sum += s;
+  const band = (m.band || "").toLowerCase();
+  if (band==="critical" || s<50) critical++;
+  else if (band==="poor" || band==="warning" || band==="fair" || (s>=50 && s<80)) warning++;
+  else healthy++;
+});
+
+return {
+  avgScore: +(sum/meters.length).toFixed(1),
+  critical, warning, healthy,
+  total: meters.length
+};
+
+B) Add a KPI/Stat row named utilityKpiRow containing:
+1) Stat card utilityAvgScoreCard
+   Label: "Utility Health Score"
+   Value: {{ utilityHealthScore.value.avgScore }}
+
+2) Stat card utilityCriticalCard
+   Label: "Critical Meters"
+   Value: {{ utilityHealthScore.value.critical }}
+
+3) Stat card utilityWarningCard
+   Label: "Warning Meters"
+   Value: {{ utilityHealthScore.value.warning }}
+
+4) Stat card utilityHealthyCard
+   Label: "Healthy Meters"
+   Value: {{ utilityHealthScore.value.healthy }}
+
+===================================================
+3) UTILITY-LEVEL AMI COMMS PANEL
+===================================================
+Goal: Show comms failures + dead radios for selected utility.
+
+A) Transformer utilityAmiSummary
+
+Code:
+const meters = filteredMetersByUtility.value || [];
+let deadRadios=0, commFails=0, noEvents=0;
+
+meters.forEach(m=>{
+  const issues = m.issues || [];
+  if (issues.includes("dead_ami_radio")) deadRadios++;
+  if (issues.includes("communication_failures")) commFails++;
+  if (issues.includes("meters_with_no_events")) noEvents++;
+});
+
+return { deadRadios, commFails, noEvents };
+
+B) Add a small panel titled "AMI Communications" with 3 Stat cards:
+- deadRadiosCard → {{ utilityAmiSummary.value.deadRadios }}
+- commFailsCard → {{ utilityAmiSummary.value.commFails }}
+- noEventsCard → {{ utilityAmiSummary.value.noEvents }}
+
+===================================================
+4) UTILITY-LEVEL BILLING DIAGNOSTICS
+===================================================
+Goal: Summarize billing risks for selected utility.
+
+A) Transformer utilityBillingSummary
+
+Code:
+const meters = filteredMetersByUtility.value || [];
+let spike=0, gaps=0, flatline=0, reverse=0, missing=0;
+
+meters.forEach(m=>{
+  const issues = m.issues || [];
+  if (issues.includes("impossible_usage_spikes")) spike++;
+  if (issues.includes("missing_reads") || issues.includes("read_gap")) gaps++;
+  if (issues.includes("flatline_usage") || issues.includes("stuck_meter")) flatline++;
+  if (issues.includes("reversed_meter")) reverse++;
+  if (issues.includes("negative_reads")) missing++;
+});
+
+return { spike, gaps, flatline, reverse, missing };
+
+B) Add panel titled "Billing Integrity" with Stat cards:
+- spikeCard → {{ utilityBillingSummary.value.spike }}
+- gapsCard → {{ utilityBillingSummary.value.gaps }}
+- flatlineCard → {{ utilityBillingSummary.value.flatline }}
+- reverseCard → {{ utilityBillingSummary.value.reverse }}
+- missingCard → {{ utilityBillingSummary.value.missing }}
+
+===================================================
+5) UTILITY WORST-10 TABLES (if not already)
+===================================================
+If worst10HealthTable / worst10BillingTable already exist, rebind to selected utility.
+
+A) Transformer worst10HealthByUtility
+
+Code:
+const meters = filteredMetersByUtility.value || [];
+return [...meters].sort((a,b)=>(a.score??999)-(b.score??999)).slice(0,10);
+
+B) Transformer worst10BillingByUtility
+
+Code:
+const meters = filteredMetersByUtility.value || [];
+return [...meters]
+  .sort((a,b)=>(b.flagCount??b.flags?.length??0)-(a.flagCount??a.flags?.length??0))
+  .slice(0,10);
+
+C) Set tables:
+- worst10HealthTable Data → {{ worst10HealthByUtility.value }}
+- worst10BillingTable Data → {{ worst10BillingByUtility.value }}
+
+If tables do not exist, create them now.
+
+===================================================
+6) GEO MAP PLACEHOLDER (future lat/long)
+===================================================
+Goal: Add map panel that will auto-populate when GPS fields exist.
+
+A) Add Map component named utilityMetersMap under analytics section.
+B) Data for map:
+
+Transformer mapMeters:
+
+Code:
+const meters = filteredMetersByUtility.value || [];
+return meters
+  .filter(m => (m.lat || m.latitude) && (m.lng || m.lon || m.longitude))
+  .map(m => ({
+    id: m.meterId ?? m.meter_id,
+    lat: m.lat ?? m.latitude,
+    lng: m.lng ?? m.lon ?? m.longitude,
+    band: m.band ?? "unknown",
+    score: m.score ?? null
+  }));
+
+Bind map data to:
+{{ mapMeters.value }}
+
+If mapMeters is empty, show helper text:
+"GPS not available yet — map will auto-populate once lat/long fields exist."
+
+===================================================
+7) OPTIONAL: FILTER EXISTING CHARTS BY SELECTED UTILITY
+===================================================
+Only if charts already use IQOverview.data.meters directly:
+- Create a safe alias transformer metersForCharts = filteredMetersByUtility.value
+- Rebind existing charts to metersForCharts where appropriate
+DO NOT change chart logic beyond swapping base array.
+
+===================================================
+DONE
+===================================================
+Add everything cleanly, keep styling consistent, and do not touch the Premium Modal system.
