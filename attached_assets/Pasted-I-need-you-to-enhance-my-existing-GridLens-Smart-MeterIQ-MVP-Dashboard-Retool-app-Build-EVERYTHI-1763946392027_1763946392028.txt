@@ -1,0 +1,213 @@
+I need you to enhance my existing “GridLens Smart MeterIQ MVP Dashboard” Retool app. 
+Build EVERYTHING below fully and correctly, and match the correct component names even if they differ in my app.
+
+Use IQOverview as the primary data source. 
+Do NOT break or overwrite my existing chart/table bindings — only improve them.
+Use my dark theme styling.
+
+===================================================
+1) DRILL-DOWN MODAL (click → open meter details)
+===================================================
+A. Create Modal:
+- Name: meterDetailsModal
+- Title: "Meter Details"
+- Hidden by default.
+
+B. Create Temporary State:
+- Name: selectedMeter
+- Initial value: null
+
+C. Add Row Click handler to At-Risk Meters table (find correct name automatically):
+- Action 1: Set temporary state selectedMeter = {{ currentRow }}
+- Action 2: Open modal meterDetailsModal
+
+D. Inside modal, add components:
+
+Text field:
+Meter ID:
+{{ selectedMeter.value?.meterId ?? selectedMeter.value?.meter_id ?? "—" }}
+
+Health Score:
+{{ selectedMeter.value?.score ?? "—" }}
+
+Band:
+{{ selectedMeter.value?.band ?? "—" }}
+
+Issues:
+{{ selectedMeter.value?.issues?.join(", ") ?? selectedMeter.value?.issues ?? "—" }}
+
+JSON Explorer:
+Data:
+{{ selectedMeter.value }}
+
+E. Transformer: selectedMeterDetails
+Code:
+const row = selectedMeter.value;
+const meters = IQOverview.data?.meters || IQOverview.data?.atRiskMeters || [];
+if (!row) return null;
+const id = row.meterId ?? row.meter_id;
+const found = meters.find(m => (m.meterId ?? m.meter_id) === id);
+return found || row;
+
+Bind modal fields to selectedMeterDetails.value instead of selectedMeter.value.
+
+===================================================
+2) SPARKLINE TRENDS FOR EACH METER
+===================================================
+A. Transformer: meterTrendSeries
+Code:
+const meters = IQOverview.data?.meters || IQOverview.data?.atRiskMeters || [];
+return meters.map(m => {
+  const id = m.meterId ?? m.meter_id;
+  const t = m.trend ?? m.usageTrend ?? m.healthTrend ?? m.lastReads ?? [];
+  return { meterId: id, series: t };
+});
+
+B. Add Sparkline column to At-Risk table:
+Type: Sparkline
+Value:
+{{ (meterTrendSeries.value.find(t => t.meterId === (currentRow.meterId ?? currentRow.meter_id))?.series) || [] }}
+
+===================================================
+3) WORST 10 TABLES
+===================================================
+A. Transformer: worst10Health
+Code:
+const m = IQOverview.data?.meters || [];
+return [...m].sort((a,b)=>(a.score??999)-(b.score??999)).slice(0,10);
+
+B. Transformer: worst10Billing
+Code:
+const m = IQOverview.data?.meters || [];
+return [...m]
+  .sort((a,b)=>(b.flagCount??b.flags?.length??0)-(a.flagCount??a.flags?.length??0))
+  .slice(0,10);
+
+C. Create tables:
+1. worst10HealthTable
+Data = {{ worst10Health.value }}
+
+2. worst10BillingTable
+Data = {{ worst10Billing.value }}
+
+Add meterId, score, flags/flagCount, and Trend sparkline columns.
+
+===================================================
+4) ALERT CARDS (critical, warning, good)
+===================================================
+A. Transformer: alertCounts
+Code:
+const m = IQOverview.data?.meters || [];
+let critical=0, warning=0, healthy=0;
+m.forEach(x=>{
+  const b=(x.band||"").toLowerCase();
+  if(b==="critical") critical++;
+  else if(b==="poor"||b==="warning"||b==="fair") warning++;
+  else healthy++;
+});
+return { critical, warning, healthy };
+
+B. Add 3 Stat Cards at top:
+criticalCard → value: {{ alertCounts.value.critical }} (red)
+warningCard → value: {{ alertCounts.value.warning }} (yellow)
+goodCard → value: {{ alertCounts.value.healthy }} (green)
+
+===================================================
+5) METER SEARCH BAR (global filter)
+===================================================
+A. Add Input:
+Name: meterSearchInput
+Placeholder: "Search meter ID…"
+
+B. Transformers:
+
+filteredAtRiskMeters:
+const rows = IQOverview.data?.atRiskMeters || [];
+const q=(meterSearchInput.value||"").toLowerCase();
+return !q ? rows : rows.filter(r=>String(r.meterId ?? r.meter_id).toLowerCase().includes(q));
+
+filteredWorst10Health:
+const rows = worst10Health.value || [];
+const q=(meterSearchInput.value||"").toLowerCase();
+return !q ? rows : rows.filter(r=>String(r.meterId ?? r.meter_id).toLowerCase().includes(q));
+
+filteredWorst10Billing:
+const rows = worst10Billing.value || [];
+const q=(meterSearchInput.value||"").toLowerCase();
+return !q ? rows : rows.filter(r=>String(r.meterId ?? r.meter_id).toLowerCase().includes(q));
+
+C. Rebind tables:
+At-Risk = {{ filteredAtRiskMeters.value }}
+Worst10Health = {{ filteredWorst10Health.value }}
+Worst10Billing = {{ filteredWorst10Billing.value }}
+
+===================================================
+6) AUTO-REFRESH ENGINE
+===================================================
+A. Add Toggle:
+Name: autoRefreshToggle
+Label: Auto-refresh
+Default: false
+
+B. Add Dropdown:
+Name: refreshIntervalSelect
+Values: ["30s","1m","5m","15m"]
+Default: "5m"
+
+C. Add JS Query: autoRefreshController
+Code:
+const enabled = autoRefreshToggle.value;
+const map = {"30s":30000,"1m":60000,"5m":300000,"15m":900000};
+const ms = map[refreshIntervalSelect.value] || 300000;
+if (enabled) {
+  utils.setInterval(() => IQOverview.trigger(), ms, "iq_auto");
+} else {
+  utils.clearInterval("iq_auto");
+}
+
+D. Event triggers:
+- autoRefreshToggle on change → autoRefreshController
+- refreshIntervalSelect on change → autoRefreshController
+
+===================================================
+7) EXPORT TO CSV BUTTONS
+===================================================
+Add a “Download CSV” button next to each major table:
+Button Action:
+Download data → {{ <table>.data }}
+
+Generate buttons for:
+- At-Risk table
+- riskMapTable
+- billingTopFlagsTable
+- billingWorstMetersTable
+- worst10HealthTable
+- worst10BillingTable
+
+===================================================
+8) GRID LENS BRAND HEADER / LOGO
+===================================================
+A. Add Container at top named brandHeader.
+
+Inside it:
+
+1. Image component named gridlensLogo  
+Use placeholder if no image available.
+
+2. Text component gridlensTitle:
+"GridLens Smart MeterIQ™ Dashboard"
+Subtext:
+"Modernizing the Grid Through Data"
+
+Style for dark mode:
+- Title: bold, white
+- Subtitle: smaller gray
+- Optional dividing line under header
+
+===================================================
+FINAL CHECKS
+===================================================
+- Auto-align components cleanly
+- Do not break any of my existing logic
+- Make all new components responsive
+- If any API field is missing, fail gracefully
