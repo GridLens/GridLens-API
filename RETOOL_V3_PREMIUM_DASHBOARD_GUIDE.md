@@ -581,7 +581,7 @@ return meters.map(m => {
 
 ---
 
-### STEP 4.2: Add Anomalies Table
+### STEP 4.2: Add Anomalies Table (Initial Setup)
 
 **CLICK:** Components → Table
 
@@ -594,6 +594,9 @@ return meters.map(m => {
 │                             │
 │ Data:                       │
 │ {{ v3Anomalies.value }}     │
+│ (Will be updated to         │
+│  v3AnomaliesExplainable     │
+│  in Step 4.5)               │
 │                             │
 │ Columns:                    │
 │ - meterId                   │
@@ -631,7 +634,93 @@ Action 2: Control component
 
 ---
 
-### STEP 4.4: Add Anomalies KPI Card
+### STEP 4.4: Create Explainable Anomalies Transformer
+
+**⚠️ This transformer adds confidence scoring and human-readable explanations to anomalies.**
+
+**Name:** `v3AnomaliesExplainable`
+
+**Code:**
+```javascript
+const anoms = v3Anomalies.value || [];
+const meters = metersNormalized.value || [];
+
+return anoms.map(a => {
+  const m = meters.find(x => x.meterId === a.meterId) || {};
+  const reasons = [];
+  
+  // Diagnostic context gathering
+  if ((m.trend || []).length < 6) reasons.push("Limited history");
+  if ((m.issues || []).length >= 2) reasons.push("Multiple risk signals");
+  if ((m.billingFlags || []).length > 0) reasons.push("Billing flags present");
+  if ((m.amiEvents || []).length > 0) reasons.push("AMI events present");
+  
+  // Confidence based on data availability
+  const confidence =
+    (m.trend || []).length >= 12 ? "High" :
+    (m.trend || []).length >= 6 ? "Medium" : "Low";
+  
+  return {
+    ...a,
+    confidence,
+    explainableReasons: reasons.join("; ") || "Trend-based variance"
+  };
+});
+```
+
+**Why this matters:**
+- Adds confidence level based on data availability
+- Provides context beyond just the anomaly score
+- Helps operators prioritize investigations
+- Makes AI decisions more transparent
+
+---
+
+### STEP 4.5: Update Anomalies Table with Explainability
+
+**CLICK:** v3AnomaliesTable → Inspector
+
+**UPDATE Data binding:**
+```
+CHANGE FROM: {{ v3Anomalies.value }}
+CHANGE TO:   {{ v3AnomaliesExplainable.value }}
+```
+
+**ADD two new columns:**
+
+**Column: confidence**
+```
+Header: Confidence
+Field: confidence
+Width: 100px
+
+Conditional color:
+{{ currentRow.confidence === "High" ? "#00ff88" : 
+   currentRow.confidence === "Medium" ? "#ffaa00" : 
+   "#ff4444" }}
+```
+
+**Column: explainableReasons**
+```
+Header: Context
+Field: explainableReasons
+Width: 250px
+Wrap text: true
+```
+
+**Final column order:**
+1. meterId
+2. anomalyScore
+3. severity
+4. confidence (NEW)
+5. reason
+6. explainableReasons (NEW)
+7. healthScore
+8. band
+
+---
+
+### STEP 4.6: Add Anomalies KPI Card
 
 **CLICK:** Components → Statistic
 

@@ -10,7 +10,7 @@
 
 ---
 
-## 🔧 9 NEW TRANSFORMERS (Copy-Paste Ready)
+## 🔧 8 NEW TRANSFORMERS (Copy-Paste Ready)
 
 ### 1. `metersNormalized` ⭐ CRITICAL FOUNDATION
 ```javascript
@@ -199,7 +199,35 @@ return meters.map(m => {
 }).filter(a => a.anomalyScore > 0).sort((a, b) => b.anomalyScore - a.anomalyScore);
 ```
 
-### 7. `v3Insights`
+### 7. `v3AnomaliesExplainable` ⭐ EXPLAINABLE AI
+```javascript
+const anoms = v3Anomalies.value || [];
+const meters = metersNormalized.value || [];
+
+return anoms.map(a => {
+  const m = meters.find(x => x.meterId === a.meterId) || {};
+  const reasons = [];
+  
+  // Diagnostic context gathering
+  if ((m.trend || []).length < 6) reasons.push("Limited history");
+  if ((m.issues || []).length >= 2) reasons.push("Multiple risk signals");
+  if ((m.billingFlags || []).length > 0) reasons.push("Billing flags present");
+  if ((m.amiEvents || []).length > 0) reasons.push("AMI events present");
+  
+  // Confidence based on data availability
+  const confidence =
+    (m.trend || []).length >= 12 ? "High" :
+    (m.trend || []).length >= 6 ? "Medium" : "Low";
+  
+  return {
+    ...a,
+    confidence,
+    explainableReasons: reasons.join("; ") || "Trend-based variance"
+  };
+});
+```
+
+### 8. `v3Insights`
 ```javascript
 const kpi = utilityHealthScore.value || {};
 const ami = utilityAmiSummary.value || {};
@@ -290,11 +318,19 @@ Map: utilityMetersMap (update existing)
 └─ Click: Open modal
 ```
 
-### V3-4: AI Anomalies
+### V3-4: AI Anomalies (Explainable)
 ```
 Table: v3AnomaliesTable
-├─ Data: {{ v3Anomalies.value }}
-└─ Columns: meterId, anomalyScore, severity, reason, healthScore, band
+├─ Data: {{ v3AnomaliesExplainable.value }}
+└─ Columns: 
+   - meterId
+   - anomalyScore
+   - severity
+   - confidence (NEW - color coded)
+   - reason
+   - explainableReasons (NEW - context)
+   - healthScore
+   - band
 
 Statistic: anomaliesCountCard
 └─ Value: {{ v3Anomalies.value.length }}
@@ -355,9 +391,14 @@ Click → selectedMeter = marker.meterData → open modal
 
 ### Anomalies Table
 ```javascript
-Data: {{ v3Anomalies.value }}
+Data: {{ v3AnomaliesExplainable.value }}
 Sort: anomalyScore descending
 Click → open modal
+
+confidence column color:
+{{ currentRow.confidence === "High" ? "#00ff88" : 
+   currentRow.confidence === "Medium" ? "#ffaa00" : 
+   "#ff4444" }}
 ```
 
 ### Work Orders
