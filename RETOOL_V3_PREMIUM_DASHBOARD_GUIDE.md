@@ -269,6 +269,59 @@ Actions:
 
 ---
 
+### STEP 1.9: Create Normalized Meters Transformer (CRITICAL)
+
+**⚠️ This transformer ensures all V3 components handle varying field names gracefully.**
+
+**Name:** `metersNormalized`
+
+**Code:**
+```javascript
+const meters =
+  v3FilteredMeters.value ||
+  filteredMetersByUtility.value ||
+  IQOverview.data?.meters ||
+  IQOverview.data?.atRiskMeters ||
+  [];
+
+return meters.map(m => ({
+  // ID fields
+  meterId: m.meterId ?? m.meter_id ?? m.id ?? "unknown",
+  utility: m.utilityName ?? m.utility ?? m.system ?? "unknown",
+  
+  // Health fields
+  score: m.score ?? m.healthScore ?? m.meterHealthIndex ?? null,
+  band: m.band ?? m.healthBand ?? "healthy",
+  
+  // Issues/Anomalies
+  issues: m.issues ?? m.flags ?? m.risks ?? [],
+  anomalyScore: m.anomalyScore ?? m.anomaly_score ?? 0,
+  
+  // Trend data
+  trend: m.trend ?? m.usageTrend ?? m.healthTrend ?? m.lastReads ?? m.reads ?? [],
+  amiEvents: m.amiEvents ?? m.events ?? m.ami_events ?? [],
+  billingFlags: m.billingFlags ?? m.flags ?? m.billing_flags ?? [],
+  
+  // Location
+  lat: m.lat ?? m.latitude ?? null,
+  lng: m.lng ?? m.lon ?? m.longitude ?? null,
+  
+  // Timestamp
+  lastReadTs: m.lastReadTs ?? m.last_read_ts ?? m.lastSeen ?? null,
+  
+  // Preserve original for modal
+  _original: m
+}));
+```
+
+**Why this matters:**
+- Handles different API field naming conventions
+- Prevents errors from missing fields
+- All V3 transformers use this as their base data source
+- Original meter data preserved in `_original` for modal compatibility
+
+---
+
 ## 📈 V3-2: UTILITY TIMELINE ANALYTICS (12 min)
 
 ### STEP 2.1: Create Timeline Data Transformer
@@ -277,23 +330,17 @@ Actions:
 
 **Code:**
 ```javascript
-const meters = v3FilteredMeters.value || [];
+const meters = metersNormalized.value || [];
 
 // Aggregate all trend points from all meters
 const allPoints = meters.flatMap(m => {
-  const trendData = 
-    m.trend || 
-    m.usageTrend || 
-    m.healthTrend || 
-    m.lastReads || 
-    m.reads || 
-    [];
+  const trendData = m.trend || [];
   
   return trendData.map(point => ({
     ts: point.ts || point.timestamp || point.date,
     value: point.value ?? point.usage ?? point.score ?? point.kwh ?? point.gallons,
     type: point.type || m.type || "usage",
-    meterId: m.meterId ?? m.meter_id
+    meterId: m.meterId
   }));
 });
 
@@ -348,7 +395,7 @@ return allPoints
 ```html
 <p style="color: #94a3b8; font-size: 12px; font-style: italic; text-align: center;">
   Trend reflects selected utility + active filters. 
-  Showing {{ utilityTrendSeries.value.length }} data points from {{ v3FilteredMeters.value.length }} meters.
+  Showing {{ utilityTrendSeries.value.length }} data points from {{ metersNormalized.value.length }} meters.
 </p>
 ```
 
@@ -362,16 +409,12 @@ return allPoints
 
 **Code:**
 ```javascript
-const meters = v3FilteredMeters.value || [];
+const meters = metersNormalized.value || [];
 
 return meters
-  .filter(m => {
-    const lat = m.lat ?? m.latitude;
-    const lng = m.lng ?? m.lon ?? m.longitude;
-    return lat && lng;
-  })
+  .filter(m => m.lat && m.lng)
   .map(m => {
-    const band = (m.band || "healthy").toLowerCase();
+    const band = m.band.toLowerCase();
     
     // Color mapping
     const colorMap = {
@@ -385,16 +428,16 @@ return meters
     };
     
     return {
-      id: m.meterId ?? m.meter_id,
-      lat: m.lat ?? m.latitude,
-      lng: m.lng ?? m.lon ?? m.longitude,
+      id: m.meterId,
+      lat: m.lat,
+      lng: m.lng,
       band: band,
-      score: m.score ?? null,
-      issues: m.issues || [],
+      score: m.score,
+      issues: m.issues,
       color: colorMap[band] || "#94a3b8",
-      title: `${m.meterId ?? m.meter_id} - ${band} (${m.score ?? "N/A"})`,
-      // Store full meter data for click handler
-      meterData: m
+      title: `${m.meterId} - ${band} (${m.score ?? "N/A"})`,
+      // Store original meter data for click handler
+      meterData: m._original || m
     };
   });
 ```
@@ -458,7 +501,7 @@ Action 2: Control component
 
 **Code:**
 ```javascript
-const meters = v3FilteredMeters.value || [];
+const meters = metersNormalized.value || [];
 
 // Helper: Calculate standard deviation
 function stdev(arr) {
@@ -469,8 +512,8 @@ function stdev(arr) {
 }
 
 return meters.map(m => {
-  // Extract numeric series from trend data
-  const trendData = m.trend || m.usageTrend || m.lastReads || m.reads || [];
+  // Extract numeric series from trend data (already normalized)
+  const trendData = m.trend || [];
   const series = trendData
     .map(x => x.value ?? x.usage ?? x.score ?? x.kwh ?? x.gallons)
     .filter(n => typeof n === 'number' && !isNaN(n));
@@ -504,14 +547,14 @@ return meters.map(m => {
   }
   
   // Multiple issues penalty
-  const issuesCount = (m.issues || []).length;
+  const issuesCount = m.issues.length;
   if (issuesCount >= 2) {
     anomalyScore += 1;
     reasons.push(`${issuesCount} issues detected`);
   }
   
   // Critical health band penalty
-  const band = (m.band || "").toLowerCase();
+  const band = m.band.toLowerCase();
   if (band === "critical") {
     anomalyScore += 1;
     reasons.push("Critical health band");
@@ -523,14 +566,14 @@ return meters.map(m => {
   else if (anomalyScore >= 2) severity = "Warning";
   
   return {
-    meterId: m.meterId ?? m.meter_id,
+    meterId: m.meterId,
     anomalyScore,
     severity,
     reason: reasons.join("; ") || "No anomalies",
-    healthScore: m.score ?? null,
-    band: m.band ?? "Unknown",
-    issues: m.issues || [],
-    utility: m.utilityName ?? m.utility ?? "N/A"
+    healthScore: m.score,
+    band: m.band,
+    issues: m.issues,
+    utility: m.utility
   };
 }).filter(a => a.anomalyScore > 0) // Only return meters with anomalies
   .sort((a, b) => b.anomalyScore - a.anomalyScore); // Sort by severity

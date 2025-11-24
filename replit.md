@@ -36,7 +36,7 @@ A live interactive dashboard is served from `/public/dashboard.html` using `expr
 Write operations (POST, PATCH) require API key authentication via a Bearer token in the Authorization header. The API key is stored as `GRIDLENS_API_KEY` in the Replit environment. Read operations are publicly accessible.
 
 ### Retool Dashboard Documentation
-The project includes comprehensive Retool implementation guides for building a utility monitoring dashboard, covering a premium 5-tab drill-down modal, utility-wide analytics, professional UI/UX polish, and V3 advanced features like AI anomaly detection, work order management, timeline analytics, and executive reporting.
+The project includes 14 comprehensive Retool implementation guides for building a premium utility monitoring dashboard, covering a premium 5-tab drill-down modal, utility-wide analytics, professional UI/UX polish, V3 advanced features like AI anomaly detection and work order management, and critical field normalization layer for reliable data handling across varying API field names.
 
 ## External Dependencies
 

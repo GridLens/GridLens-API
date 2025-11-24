@@ -10,9 +10,48 @@
 
 ---
 
-## 🔧 8 NEW TRANSFORMERS (Copy-Paste Ready)
+## 🔧 9 NEW TRANSFORMERS (Copy-Paste Ready)
 
-### 1. `v3IssueList`
+### 1. `metersNormalized` ⭐ CRITICAL FOUNDATION
+```javascript
+const meters =
+  v3FilteredMeters.value ||
+  filteredMetersByUtility.value ||
+  IQOverview.data?.meters ||
+  IQOverview.data?.atRiskMeters ||
+  [];
+
+return meters.map(m => ({
+  // ID fields
+  meterId: m.meterId ?? m.meter_id ?? m.id ?? "unknown",
+  utility: m.utilityName ?? m.utility ?? m.system ?? "unknown",
+  
+  // Health fields
+  score: m.score ?? m.healthScore ?? m.meterHealthIndex ?? null,
+  band: m.band ?? m.healthBand ?? "healthy",
+  
+  // Issues/Anomalies
+  issues: m.issues ?? m.flags ?? m.risks ?? [],
+  anomalyScore: m.anomalyScore ?? m.anomaly_score ?? 0,
+  
+  // Trend data
+  trend: m.trend ?? m.usageTrend ?? m.healthTrend ?? m.lastReads ?? m.reads ?? [],
+  amiEvents: m.amiEvents ?? m.events ?? m.ami_events ?? [],
+  billingFlags: m.billingFlags ?? m.flags ?? m.billing_flags ?? [],
+  
+  // Location
+  lat: m.lat ?? m.latitude ?? null,
+  lng: m.lng ?? m.lon ?? m.longitude ?? null,
+  
+  // Timestamp
+  lastReadTs: m.lastReadTs ?? m.last_read_ts ?? m.lastSeen ?? null,
+  
+  // Preserve original for modal
+  _original: m
+}));
+```
+
+### 2. `v3IssueList`
 ```javascript
 const meters = filteredMetersByUtility.value || IQOverview.data?.meters || [];
 const allIssues = meters.flatMap(m => {
@@ -25,7 +64,7 @@ const allIssues = meters.flatMap(m => {
 return [...new Set(allIssues)].filter(Boolean).sort();
 ```
 
-### 2. `v3FilteredMeters`
+### 3. `v3FilteredMeters`
 ```javascript
 const meters = filteredMetersByUtility.value || IQOverview.data?.meters || [];
 const bandsSelected = (v3BandFilter.value || []).map(b => b.toLowerCase());
@@ -53,53 +92,49 @@ if (showAnomaliesOnly) {
 return filtered;
 ```
 
-### 3. `utilityTrendSeries`
+### 4. `utilityTrendSeries`
 ```javascript
-const meters = v3FilteredMeters.value || [];
+const meters = metersNormalized.value || [];
 const allPoints = meters.flatMap(m => {
-  const trendData = m.trend || m.usageTrend || m.healthTrend || m.lastReads || m.reads || [];
+  const trendData = m.trend || [];
   return trendData.map(point => ({
     ts: point.ts || point.timestamp || point.date,
     value: point.value ?? point.usage ?? point.score ?? point.kwh ?? point.gallons,
     type: point.type || m.type || "usage",
-    meterId: m.meterId ?? m.meter_id
+    meterId: m.meterId
   }));
 });
 return allPoints.filter(p => p.ts && p.value !== null && p.value !== undefined)
   .sort((a, b) => new Date(a.ts) - new Date(b.ts));
 ```
 
-### 4. `v3MapMarkers`
+### 5. `v3MapMarkers`
 ```javascript
-const meters = v3FilteredMeters.value || [];
-return meters.filter(m => {
-  const lat = m.lat ?? m.latitude;
-  const lng = m.lng ?? m.lon ?? m.longitude;
-  return lat && lng;
-}).map(m => {
-  const band = (m.band || "healthy").toLowerCase();
+const meters = metersNormalized.value || [];
+return meters.filter(m => m.lat && m.lng).map(m => {
+  const band = m.band.toLowerCase();
   const colorMap = {
     "critical": "#ff4444", "poor": "#ff7744", "fair": "#ffaa00",
     "warning": "#ffaa00", "good": "#00ff88", "excellent": "#00ffff",
     "healthy": "#00ff88"
   };
   return {
-    id: m.meterId ?? m.meter_id,
-    lat: m.lat ?? m.latitude,
-    lng: m.lng ?? m.lon ?? m.longitude,
+    id: m.meterId,
+    lat: m.lat,
+    lng: m.lng,
     band: band,
-    score: m.score ?? null,
-    issues: m.issues || [],
+    score: m.score,
+    issues: m.issues,
     color: colorMap[band] || "#94a3b8",
-    title: `${m.meterId ?? m.meter_id} - ${band} (${m.score ?? "N/A"})`,
-    meterData: m
+    title: `${m.meterId} - ${band} (${m.score ?? "N/A"})`,
+    meterData: m._original || m
   };
 });
 ```
 
-### 5. `v3Anomalies`
+### 6. `v3Anomalies`
 ```javascript
-const meters = v3FilteredMeters.value || [];
+const meters = metersNormalized.value || [];
 
 function stdev(arr) {
   if (arr.length < 2) return 0;
@@ -109,7 +144,7 @@ function stdev(arr) {
 }
 
 return meters.map(m => {
-  const trendData = m.trend || m.usageTrend || m.lastReads || m.reads || [];
+  const trendData = m.trend || [];
   const series = trendData.map(x => x.value ?? x.usage ?? x.score ?? x.kwh ?? x.gallons)
     .filter(n => typeof n === 'number' && !isNaN(n));
   
@@ -135,13 +170,13 @@ return meters.map(m => {
     }
   }
   
-  const issuesCount = (m.issues || []).length;
+  const issuesCount = m.issues.length;
   if (issuesCount >= 2) {
     anomalyScore += 1;
     reasons.push(`${issuesCount} issues detected`);
   }
   
-  const band = (m.band || "").toLowerCase();
+  const band = m.band.toLowerCase();
   if (band === "critical") {
     anomalyScore += 1;
     reasons.push("Critical health band");
@@ -152,19 +187,19 @@ return meters.map(m => {
   else if (anomalyScore >= 2) severity = "Warning";
   
   return {
-    meterId: m.meterId ?? m.meter_id,
+    meterId: m.meterId,
     anomalyScore,
     severity,
     reason: reasons.join("; ") || "No anomalies",
-    healthScore: m.score ?? null,
-    band: m.band ?? "Unknown",
-    issues: m.issues || [],
-    utility: m.utilityName ?? m.utility ?? "N/A"
+    healthScore: m.score,
+    band: m.band,
+    issues: m.issues,
+    utility: m.utility
   };
 }).filter(a => a.anomalyScore > 0).sort((a, b) => b.anomalyScore - a.anomalyScore);
 ```
 
-### 6. `v3Insights`
+### 7. `v3Insights`
 ```javascript
 const kpi = utilityHealthScore.value || {};
 const ami = utilityAmiSummary.value || {};
