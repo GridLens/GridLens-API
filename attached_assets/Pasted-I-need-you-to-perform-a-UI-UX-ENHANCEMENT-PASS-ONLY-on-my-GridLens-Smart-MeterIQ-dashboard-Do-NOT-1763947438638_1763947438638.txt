@@ -1,0 +1,153 @@
+I need you to perform a UI/UX ENHANCEMENT PASS ONLY on my GridLens Smart MeterIQ dashboard.  
+Do NOT modify my API bindings, transformers, tables, charts, modals, utility selector, or data logic.  
+This is STRICTLY styling, layout, grouping, spacing, and navigation polish.
+
+===================================================
+1) GLOBAL LAYOUT & SPACING IMPROVEMENTS
+===================================================
+A) Apply consistent spacing:
+- Add uniform vertical spacing (16–20px) between all major dashboard sections.
+- Add uniform horizontal margins around components (12–16px).
+- Ensure all cards, panels, and tables are left-aligned cleanly.
+
+B) Create a responsive grid layout:
+- Use a 12-column grid for desktop.
+- Ensure KPIs, maps, tables collapse to 1-column view on mobile.
+
+C) Add subtle section dividers:
+- Use a semi-transparent horizontal rule between top header, KPI row, utility-level analytics, and meter tables.
+
+===================================================
+2) NAVIGATION BAR (TOP)
+===================================================
+Add a top navigation strip named appNavBar with dark theme styling.
+
+Inside appNavBar:
+A) Left Side:
+   - Text: “GridLens Smart MeterIQ™”
+     Style: large, bold, white.
+
+   - Subtext below (smaller, gray):
+     “Modernizing the Grid Through Data”
+
+B) Right Side:
+   - Add buttons:
+       1. Refresh IQOverview
+          → Action: IQOverview.trigger()
+       2. Open Settings (opens a new modal named settingsModal)
+       3. Export Dashboard (dropdown menu; see below)
+
+C) Navigation bar should have a sticky top position so it stays visible when scrolling.
+
+===================================================
+3) GRIDLENS BRAND HEADER PACKAGE
+===================================================
+A) Add a container named brandHeader under the navigation bar.
+
+Inside brandHeader:
+1) Image: gridlensLogo
+   - If no logo exists, use placeholder:
+     “https://dummyimage.com/200x60/000/fff&text=GridLens+Logo"
+
+2) Text block:
+   Title: “GridLens Smart MeterIQ™ Dashboard”
+   Subtitle: “Utility Meter Health • Billing Integrity • AMI Performance”
+
+Style:
+- Title: white, bold, large
+- Subtitle: light gray, medium-size
+
+===================================================
+4) DASHBOARD SECTION TITLES + PANELS
+===================================================
+For every major group (KPI row, AMI comms panel, billing panel, worst-10 tables, map panel):
+
+Add a panel header using:
+- Title text (white, bold)
+- Small sub-label (gray)
+- Right-corner action icons (like CSV Export)
+
+Examples:
+- “Utility Health KPIs”
+- “AMI Communications Summary”
+- “Billing Integrity Summary”
+- “Worst 10 Health Meters”
+- “Worst 10 Billing Meters”
+- “Meter Map”
+- “At-Risk Meters”
+
+===================================================
+5) EXPORT TO CSV MENU (GLOBAL)
+===================================================
+Add a dropdown button in the top navigation bar named exportMenu.
+
+Menu items (each triggers CSV download):
+- Export At-Risk Meters → {{ atRiskMetersTable.data }}
+- Export Worst 10 Health → {{ worst10HealthTable.data }}
+- Export Worst 10 Billing → {{ worst10BillingTable.data }}
+- Export Billing Flags → {{ billingWorstMetersTable.data }}
+- Export Risk Map → {{ riskMapTable.data }}
+
+===================================================
+6) LEFT SIDEBAR (OPTIONAL BUT HIGHLY RECOMMENDED)
+===================================================
+Add a collapsible left sidebar named appSidebar with icons:
+
+Items:
+- Dashboard
+- Utility Analytics
+- Meter Explorer
+- Events
+- Billing Integrity
+- Settings
+
+Sidebar rules:
+- Do NOT change any data bindings.
+- Only add navigation anchors (no routing).
+
+===================================================
+7) TABLE VISUAL ENHANCEMENTS
+===================================================
+Apply the following to all tables:
+- Dark theme rows and header
+- Header background slightly darker than rows
+- Row hover highlights
+- Round table corners (6px)
+- Add optional small box-shadow
+
+Color-code band rows:
+- Critical → background rgba(255, 0, 0, 0.15)
+- Warning → rgba(255, 170, 0, 0.15)
+- Healthy → rgba(0, 255, 0, 0.10)
+
+This is VISUAL ONLY — DO NOT change data or logic.
+
+===================================================
+8) KPI/STAT CARD POLISH
+===================================================
+For all KPI cards (Utility Health Score, Critical, Warning, Healthy, Billing, AMI):
+
+Apply:
+- Rounded corners (10px)
+- Dark gradient background
+- Icon on left (use Retool icon set)
+- Large value text (white)
+- Small label text (gray)
+- Subtle inner glow for “Critical”
+
+===================================================
+9) PAGE FOOTER
+===================================================
+Add footer at bottom:
+- Text centered: 
+  “GridLens Smart MeterIQ™ • © 2025 GridLens Energy • All Rights Reserved”
+- Light-gray color for text
+- Very thin top divider
+
+===================================================
+10) FINAL CLEANUP
+===================================================
+- Do NOT remove or rename ANY existing components.
+- Do NOT modify any bindings, queries, or transformers.
+- Do NOT overwrite the drill-down modal or utility analytics.
+- Only improve visuals, grouping, spacing, headers, sidebar, nav, export menu, and polish.
