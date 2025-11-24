@@ -1,0 +1,252 @@
+I need you to upgrade my existing GridLens Smart MeterIQ Retool app to a V3 Premium Dashboard.
+
+CRITICAL RULES:
+- Do NOT delete or break my existing logic, modal, tables, charts, or utility selector.
+- Only ADD V3 features and rebind safely to filteredMetersByUtility / selectedMeterDetails where appropriate.
+- Use IQOverview as the base query.
+- Keep dark theme + GridLens branding consistent.
+- Gracefully handle missing fields (no hard failures).
+
+========================================================
+V3-1) GLOBAL FILTER BAR (ADVANCED)
+========================================================
+Add a compact filter bar under the top header:
+
+A) Date Range Picker: v3DateRange
+- Default: last 30 days (if timestamps exist)
+
+B) Multi-select: v3BandFilter
+- Values: ["Critical","Warning","Healthy"]
+- Default: all selected
+
+C) Multi-select: v3IssueFilter
+- Values derived from unique issues in meters
+Transformer v3IssueList:
+const meters = filteredMetersByUtility.value || IQOverview.data?.meters || [];
+const all = meters.flatMap(m => m.issues || []);
+return [...new Set(all)].filter(Boolean);
+
+Bind v3IssueFilter values to {{ v3IssueList.value }}.
+
+D) Toggle: v3ShowOnlyAnomalies (default false)
+
+E) Transformer v3FilteredMeters:
+const meters = filteredMetersByUtility.value || IQOverview.data?.meters || [];
+const bands = (v3BandFilter.value || []).map(b => b.toLowerCase());
+const issuesSel = v3IssueFilter.value || [];
+const showAnom = v3ShowOnlyAnomalies.value;
+
+let out = meters.filter(m=>{
+  const band = (m.band || "").toLowerCase();
+  const bOk = !bands.length || bands.includes(band) || (band==="" && bands.includes("healthy"));
+  const iOk = !issuesSel.length || (m.issues||[]).some(x => issuesSel.includes(x));
+  return bOk && iOk;
+});
+
+if (showAnom) out = out.filter(m => (m.anomalyScore ?? 0) > 0);
+
+return out;
+
+Rebind any V3 tables/charts to v3FilteredMeters.
+
+========================================================
+V3-2) UTILITY TIMELINE ANALYTICS (INTERACTIVE)
+========================================================
+Goal: show utility-wide time series for health + usage + comms.
+
+A) Transformer utilityTrendSeries:
+const meters = v3FilteredMeters.value || [];
+const points = meters.flatMap(m => m.trend || m.usageTrend || m.healthTrend || []);
+// Normalize to {ts, value, type}
+return points.map(p => ({
+  ts: p.ts || p.timestamp || p.date,
+  value: p.value ?? p.usage ?? p.score ?? null,
+  type: p.type || "usage"
+})).filter(x=>x.ts && x.value!==null);
+
+B) Add a Line Chart: utilityTrendChart
+- Data: {{ utilityTrendSeries.value }}
+- X: ts
+- Y: value
+- Color/series split by "type"
+- Zoom + hover tooltip enabled.
+
+C) Add a small summary text under chart:
+"Trend reflects selected utility + filters."
+
+========================================================
+V3-3) PREMIUM MAP (CLUSTERING + BAND COLOR)
+========================================================
+Upgrade existing map (utilityMetersMap) to clustering and band color.
+
+A) Transformer v3MapMarkers:
+const meters = v3FilteredMeters.value || [];
+return meters
+  .filter(m => (m.lat || m.latitude) && (m.lng || m.lon || m.longitude))
+  .map(m => ({
+    id: m.meterId ?? m.meter_id,
+    lat: m.lat ?? m.latitude,
+    lng: m.lng ?? m.lon ?? m.longitude,
+    band: (m.band || "healthy").toLowerCase(),
+    score: m.score ?? null,
+    issues: m.issues || []
+  }));
+
+B) Map settings:
+- Marker data: {{ v3MapMarkers.value }}
+- Enable clustering.
+- Marker color rule:
+  critical → red
+  warning/poor/fair → amber
+  healthy → green
+- On marker click:
+  Set selectedMeter = marker payload
+  Open meterDetailsModal
+
+========================================================
+V3-4) AI ANOMALY DETECTION (SEVERITY + REASON)
+========================================================
+Goal: auto-score anomalies per meter using trend volatility.
+
+A) Transformer v3Anomalies:
+const meters = v3FilteredMeters.value || [];
+function stdev(arr){
+  const m = arr.reduce((a,b)=>a+b,0)/arr.length;
+  const v = arr.reduce((a,b)=>a+(b-m)**2,0)/arr.length;
+  return Math.sqrt(v);
+}
+return meters.map(m=>{
+  const series = (m.trend || m.usageTrend || m.lastReads || []).map(x=>x.value ?? x.usage ?? x.score).filter(n=>typeof n==="number");
+  let score=0, reason=[];
+  if(series.length>=6){
+    const sd = stdev(series);
+    const mean = series.reduce((a,b)=>a+b,0)/series.length;
+    const last = series[series.length-1];
+    if(sd > mean*0.6){ score+=2; reason.push("High volatility"); }
+    if(last > mean*2){ score+=2; reason.push("Extreme spike"); }
+    if(last < mean*0.2){ score+=2; reason.push("Sudden drop/flatline"); }
+  }
+  if((m.issues||[]).length>=2){ score+=1; reason.push("Multiple issues"); }
+  const severity = score>=4 ? "Critical" : score>=2 ? "Warning" : "Normal";
+  return {
+    meterId: m.meterId ?? m.meter_id,
+    anomalyScore: score,
+    severity,
+    reason: reason.join("; "),
+    score: m.score ?? null,
+    band: m.band ?? null
+  };
+}).filter(a=>a.anomalyScore>0);
+
+B) Add table: v3AnomaliesTable
+- Data: {{ v3Anomalies.value }}
+- Columns: meterId, anomalyScore, severity, reason, score, band
+- Row click opens modal (set selectedMeter/currentRow → open meterDetailsModal)
+
+C) Add KPI card: anomaliesCountCard
+Value: {{ v3Anomalies.value.length }}
+
+========================================================
+V3-5) WORKFLOW ENGINE (WORK ORDERS)
+========================================================
+Goal: create/track work orders from anomalies or any meter.
+
+A) Create a Temporary State array: workOrders (default [])
+B) Add Button on anomalies table + modal:
+   Label: "Create Work Order"
+
+On click:
+- Push into workOrders:
+{{ 
+  [...(workOrders.value||[]), {
+    id: utils.uuid(),
+    meterId: selectedMeterDetails.value?.meterId ?? selectedMeterDetails.value?.meter_id,
+    utility: utilitySelect.value,
+    priority: recommendedAction.value?.priority ?? "Normal",
+    issues: selectedMeterDetails.value?.issues || [],
+    status: "Open",
+    createdTs: new Date().toISOString()
+  }]
+}}
+
+C) Add a new tab/section "Work Orders"
+Table: workOrdersTable
+Data: {{ workOrders.value }}
+Columns: id, meterId, utility, priority, issues, status, createdTs
+
+D) Add Status dropdown per row (editable):
+Values: Open, In Progress, Resolved, Deferred
+
+========================================================
+V3-6) EXECUTIVE PDF EXPORT PACK
+========================================================
+Goal: one-click export of current utility summary to PDF.
+
+A) Add button: exportExecutivePdfBtn
+Label: "Export Executive PDF"
+
+B) Create JS Query: buildExecutiveReport
+Code:
+const u = utilitySelect.value || "All";
+const kpi = utilityHealthScore.value;
+const ami = utilityAmiSummary.value;
+const bill = utilityBillingSummary.value;
+const anom = v3Anomalies.value.slice(0,10);
+
+const report = {
+  title: "GridLens Smart MeterIQ Executive Summary",
+  utility: u,
+  generatedTs: new Date().toISOString(),
+  kpi, ami, bill,
+  topAnomalies: anom
+};
+
+utils.downloadFile({
+  data: JSON.stringify(report, null, 2),
+  fileName: `GridLens_${u}_Executive_Report.json`,
+  fileType: "application/json"
+});
+
+NOTE: If native PDF export is available in this Retool plan, convert this JSON to a PDF layout instead; otherwise export JSON now as a V3 placeholder.
+
+========================================================
+V3-7) INSIGHTS PANE (AUTO-NARRATIVE)
+========================================================
+Goal: a right-side insights card that summarizes what’s happening.
+
+A) Transformer v3Insights:
+const kpi = utilityHealthScore.value || {};
+const ami = utilityAmiSummary.value || {};
+const bill = utilityBillingSummary.value || {};
+const an = v3Anomalies.value || [];
+
+let lines=[];
+lines.push(`Utility Health Score: ${kpi.avgScore || 0} across ${kpi.total || 0} meters.`);
+lines.push(`Critical: ${kpi.critical||0}, Warning: ${kpi.warning||0}, Healthy: ${kpi.healthy||0}.`);
+lines.push(`AMI risks — Dead radios: ${ami.deadRadios||0}, Comms failures: ${ami.commFails||0}.`);
+lines.push(`Billing risks — Spikes: ${bill.spike||0}, Gaps: ${bill.gaps||0}, Flatline: ${bill.flatline||0}.`);
+if(an.length){
+  lines.push(`Detected ${an.length} anomalies. Top severity: ${an[0].severity}.`);
+} else {
+  lines.push("No significant anomalies detected under current filters.");
+}
+return lines.join(" ");
+
+B) Add a sticky side card: v3InsightsCard
+Text: {{ v3Insights.value }}
+
+========================================================
+V3-8) UNIVERSAL CLICK-TO-INVESTIGATE
+========================================================
+Ensure ALL V3 tables and charts (utility trend, anomalies, worst-10, at-risk, map markers):
+- On click/row click:
+  set selectedMeter = {{ currentRow or clickedPoint }}
+  open meterDetailsModal
+
+========================================================
+FINAL VALIDATION
+========================================================
+- Keep my previous V1/V2 features intact.
+- All new elements must respect v3FilteredMeters and utilitySelect.
+- Do not break existing bindings or rename key components.
+- If any data field is missing, show empty states instead of errors.
