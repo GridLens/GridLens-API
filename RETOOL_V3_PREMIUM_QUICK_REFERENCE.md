@@ -2,7 +2,7 @@
 
 ## 🚀 V3 FEATURES AT A GLANCE
 
-**8 Premium Features** that transform your dashboard into an enterprise analytics platform.
+**11 Premium Features** that transform your dashboard into an enterprise analytics platform.
 
 **Time:** ~75 minutes total
 
@@ -10,7 +10,7 @@
 
 ---
 
-## 🔧 8 NEW TRANSFORMERS (Copy-Paste Ready)
+## 🔧 10 NEW TRANSFORMERS (Copy-Paste Ready)
 
 ### 1. `metersNormalized` ⭐ CRITICAL FOUNDATION
 ```javascript
@@ -286,6 +286,35 @@ if (kpi.critical > 0) {
 return insights.join("\n");
 ```
 
+### 9. `dispatchPack` 📦 FIELD-READY EXPORT
+```javascript
+const orders = workOrders.value || [];
+return orders.map(o => ({
+  ticketId: o.id,
+  utility: o.utility,
+  meterId: o.meterId,
+  priority: o.priority,
+  issues: (o.issues || []).join(", "),
+  recommendedAction:
+    (o.recommendedAction || recommendedAction.value?.action?.join(" ")) ?? "",
+  createdTs: o.createdTs,
+  status: o.status
+}));
+```
+
+### 10. `portfolioSummary` 📊 EXECUTIVE MULTI-UTILITY VIEW
+```javascript
+const buckets = IQOverview.data?.riskMap?.buckets || [];
+return buckets.map(b => ({
+  utility: b.utilityName ?? b.utility ?? b.name ?? "unknown",
+  avgScore: b.avgScore ?? b.score ?? null,
+  critical: b.critical ?? b.criticalCount ?? 0,
+  warning: b.warning ?? b.warningCount ?? 0,
+  healthy: b.healthy ?? b.healthyCount ?? 0,
+  totalMeters: b.totalMeters ?? b.count ?? 0
+}));
+```
+
 ---
 
 ## 📋 COMPONENTS TO ADD
@@ -361,6 +390,53 @@ Button: Export Executive Report
 ```
 Container: v3InsightsCard (sticky sidebar)
 └─ Text/Markdown: {{ v3Insights.value }}
+```
+
+### V3-8: Dispatch Pack 📦
+```
+Transformer: dispatchPack
+
+Table: dispatchPackTable
+├─ Data: {{ dispatchPack.value }}
+└─ Columns: ticketId, utility, meterId, priority, issues, recommendedAction, createdTs, status
+
+Button: exportDispatchCsvBtn
+└─ Downloads CSV: {{ dispatchPackTable.data }}
+```
+
+### V3-9: Portfolio Mode 📊
+```
+Toggle: portfolioModeToggle (default: false)
+
+Transformer: portfolioSummary
+
+Table: portfolioSummaryTable
+├─ Data: {{ portfolioSummary.value }}
+├─ Visible when: {{ portfolioModeToggle.value === true }}
+└─ Columns: utility, avgScore, critical, warning, healthy, totalMeters
+
+Visibility rules:
+- utilitySelect: visible when portfolioModeToggle === false
+- AMI/Billing/KPI panels: visible when portfolioModeToggle === false
+```
+
+### V3-10: Demo Mode 🎬
+```
+Toggle: demoModeToggle (default: false)
+
+JS Query: demoModeController
+└─ Runs on toggle change
+
+Demo ON:
+  v3BandFilter → ["Critical","Warning"]
+  v3ShowOnlyAnomalies → true
+  refreshIntervalSelect → "5m"
+  autoRefreshToggle → true
+
+Demo OFF:
+  v3BandFilter → ["Critical","Warning","Healthy"]
+  v3ShowOnlyAnomalies → false
+  autoRefreshToggle → false
 ```
 
 ---
@@ -494,7 +570,10 @@ Excellent: #00ffff (cyan)
 ☐ V3-5: Work orders create and update status
 ☐ V3-6: Executive report downloads JSON
 ☐ V3-7: Insights pane updates with filters
-☐ V3-8: All tables/charts open modal on click
+☐ V3-8: Dispatch Pack exports CSV correctly
+☐ V3-9: Portfolio Mode shows/hides correct panels
+☐ V3-10: Demo Mode toggles filters and refresh
+☐ V3-11: All tables/charts open modal on click
 ☐ All V1/V2 features still work
 ☐ No component name changes
 ☐ No broken bindings
@@ -584,6 +663,33 @@ utils.downloadFile({
   fileName: `GridLens_${utility}_Executive_Report_${new Date().toISOString().split('T')[0]}.json`,
   fileType: "application/json"
 });
+```
+
+---
+
+## 🎬 DEMO MODE CONTROLLER CODE
+
+```javascript
+// demoModeController JS Query
+const on = demoModeToggle.value;
+
+if (on) {
+  // Demo ON: Show critical issues
+  v3BandFilter.setValue(["Critical","Warning"]);
+  v3ShowOnlyAnomalies.setValue(true);
+  
+  // Enable auto-refresh for live demos
+  refreshIntervalSelect.setValue("5m");
+  autoRefreshToggle.setValue(true);
+
+} else {
+  // Demo OFF: Reset to normal view
+  v3BandFilter.setValue(["Critical","Warning","Healthy"]);
+  v3ShowOnlyAnomalies.setValue(false);
+  
+  // Disable auto-refresh
+  autoRefreshToggle.setValue(false);
+}
 ```
 
 ---

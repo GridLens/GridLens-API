@@ -29,10 +29,13 @@ V3 NEW Features (Adding):
 ⭐ Advanced filter bar (date, band, issue, anomalies)
 ⭐ Interactive timeline analytics
 ⭐ Clustering map with band colors
-⭐ AI anomaly detection engine
+⭐ AI anomaly detection engine (with explainability)
 ⭐ Work order management system
+⭐ Dispatch Pack (field-ready CSV export)
 ⭐ Executive PDF export
 ⭐ Auto-narrative insights pane
+⭐ Portfolio Mode (multi-utility executive view)
+⭐ Demo Mode (one-click demo configuration)
 ⭐ Universal click-to-investigate
 ```
 
@@ -897,6 +900,112 @@ workOrders.setValue(updated);
 
 ---
 
+### STEP 5.6: Create Dispatch Pack Transformer
+
+**⚠️ Field-ready export for dispatch teams**
+
+**Name:** `dispatchPack`
+
+**Code:**
+```javascript
+const orders = workOrders.value || [];
+return orders.map(o => ({
+  ticketId: o.id,
+  utility: o.utility,
+  meterId: o.meterId,
+  priority: o.priority,
+  issues: (o.issues || []).join(", "),
+  recommendedAction:
+    (o.recommendedAction || recommendedAction.value?.action?.join(" ")) ?? "",
+  createdTs: o.createdTs,
+  status: o.status
+}));
+```
+
+**Why this matters:**
+- Simplifies work orders for field technicians
+- Flattens nested data (issues array → comma-separated)
+- Adds ticket ID for tracking
+- CSV-ready format
+
+---
+
+### STEP 5.7: Add Dispatch Pack Section
+
+**BELOW work orders table:**
+
+**Section header:**
+```html
+<h3 style="color: #60a5fa; font-size: 16px; font-weight: 600; margin: 30px 0 10px 0;">
+  📦 Dispatch Pack
+</h3>
+<p style="color: #94a3b8; font-size: 14px;">
+  Field-ready work order export for technicians
+</p>
+```
+
+---
+
+### STEP 5.8: Add Dispatch Pack Table
+
+**CLICK:** Components → Table
+
+**Inspector:**
+```
+┌─────────────────────────────┐
+│ Table                       │
+├─────────────────────────────┤
+│ Name: [dispatchPackTable  ] │
+│                             │
+│ Data:                       │
+│ {{ dispatchPack.value }}    │
+│                             │
+│ Columns:                    │
+│ - ticketId                  │
+│ - utility                   │
+│ - meterId                   │
+│ - priority                  │
+│ - issues                    │
+│ - recommendedAction         │
+│ - createdTs                 │
+│ - status                    │
+│                             │
+│ Page size: 10               │
+└─────────────────────────────┘
+```
+
+---
+
+### STEP 5.9: Add CSV Export Button
+
+**ABOVE dispatchPackTable:**
+
+**CLICK:** + → Button
+
+**Inspector:**
+```
+┌─────────────────────────────┐
+│ Button                      │
+├─────────────────────────────┤
+│ Name: [exportDispatchCsvBtn]│
+│                             │
+│ Text: Export Dispatch CSV   │
+│ Icon: download              │
+│ Style: Primary              │
+│ Size: Medium                │
+└─────────────────────────────┘
+```
+
+**Click event:**
+```
+Action: Download CSV data
+Data: {{ dispatchPackTable.data }}
+```
+
+**Result:** Field crews get a clean CSV with all dispatch info ready to load into mobile devices
+
+---
+
 ## 📄 V3-6: EXECUTIVE PDF EXPORT (8 min)
 
 ### STEP 6.1: Create Executive Report Builder
@@ -1183,9 +1292,203 @@ Action 2: Control component
 
 ---
 
+## 📊 V3-9: PORTFOLIO MODE (8 min)
+
+**⚠️ Multi-utility executive view - additive only, preserves all existing components**
+
+### STEP 9.1: Create Portfolio Mode Toggle
+
+**CLICK:** Components → Toggle
+
+**Inspector:**
+```
+┌─────────────────────────────┐
+│ Toggle                      │
+├─────────────────────────────┤
+│ Name: [portfolioModeToggle] │
+│                             │
+│ Label: Portfolio Mode       │
+│                             │
+│ Default: false              │
+│                             │
+│ Tooltip: View all utilities│
+│ at once                     │
+└─────────────────────────────┘
+```
+
+---
+
+### STEP 9.2: Create Portfolio Summary Transformer
+
+**Name:** `portfolioSummary`
+
+**Code:**
+```javascript
+const buckets = IQOverview.data?.riskMap?.buckets || [];
+return buckets.map(b => ({
+  utility: b.utilityName ?? b.utility ?? b.name ?? "unknown",
+  avgScore: b.avgScore ?? b.score ?? null,
+  critical: b.critical ?? b.criticalCount ?? 0,
+  warning: b.warning ?? b.warningCount ?? 0,
+  healthy: b.healthy ?? b.healthyCount ?? 0,
+  totalMeters: b.totalMeters ?? b.count ?? 0
+}));
+```
+
+**Why this matters:**
+- Executive view across all utilities
+- High-level KPIs without drilling into individual utility
+- Perfect for portfolio managers and C-level dashboards
+
+---
+
+### STEP 9.3: Add Portfolio Summary Table
+
+**CLICK:** Components → Table
+
+**Inspector:**
+```
+┌─────────────────────────────┐
+│ Table                       │
+├─────────────────────────────┤
+│ Name: [portfolioSummary     │
+│        Table              ] │
+│                             │
+│ Data:                       │
+│ {{ portfolioSummary.value }}│
+│                             │
+│ Columns:                    │
+│ - utility                   │
+│ - avgScore                  │
+│ - critical                  │
+│ - warning                   │
+│ - healthy                   │
+│ - totalMeters               │
+│                             │
+│ Page size: 20               │
+│                             │
+│ Sort: avgScore (asc)        │
+│ (shows worst utilities first)│
+└─────────────────────────────┘
+```
+
+---
+
+### STEP 9.4: Configure Visibility Rules
+
+**Portfolio Summary Table:**
+```
+CLICK: portfolioSummaryTable → Inspector → Visibility
+
+Condition:
+{{ portfolioModeToggle.value === true }}
+```
+
+**Utility Selector:**
+```
+CLICK: utilitySelect → Inspector → Visibility
+
+Condition:
+{{ portfolioModeToggle.value === false }}
+```
+
+**Utility-Level Panels (AMI/Billing/KPI blocks):**
+```
+CLICK: Each panel → Inspector → Visibility
+
+Condition:
+{{ portfolioModeToggle.value === false }}
+```
+
+**Design Pattern:**
+- When toggle ON: Show portfolio table, hide utility selector and panels
+- When toggle OFF: Show utility selector and panels, hide portfolio table
+- All other V3 features remain visible regardless of mode
+
+---
+
+## 🎬 V3-10: DEMO MODE (5 min)
+
+**⚠️ One-click demo configuration - additive only, preserves all settings**
+
+### STEP 10.1: Create Demo Mode Toggle
+
+**CLICK:** Components → Toggle
+
+**Inspector:**
+```
+┌─────────────────────────────┐
+│ Toggle                      │
+├─────────────────────────────┤
+│ Name: [demoModeToggle     ] │
+│                             │
+│ Label: Demo Mode            │
+│                             │
+│ Default: false              │
+│                             │
+│ Tooltip: Auto-configure     │
+│ filters for demos           │
+└─────────────────────────────┘
+```
+
+---
+
+### STEP 10.2: Create Demo Mode Controller
+
+**CLICK:** Code → + New → JavaScript Query
+
+**Name:** `demoModeController`
+
+**Code:**
+```javascript
+const on = demoModeToggle.value;
+
+if (on) {
+  // Demo ON: Show critical issues
+  v3BandFilter.setValue(["Critical","Warning"]);
+  v3ShowOnlyAnomalies.setValue(true);
+  
+  // Enable auto-refresh for live demos
+  refreshIntervalSelect.setValue("5m");
+  autoRefreshToggle.setValue(true);
+
+} else {
+  // Demo OFF: Reset to normal view
+  v3BandFilter.setValue(["Critical","Warning","Healthy"]);
+  v3ShowOnlyAnomalies.setValue(false);
+  
+  // Disable auto-refresh
+  autoRefreshToggle.setValue(false);
+}
+```
+
+**Why this matters:**
+- Sales demos: One click to show critical meters and anomalies
+- Training: Instantly configure dashboard for teaching scenarios
+- Presentations: Auto-refresh keeps data moving during live presentations
+- Reset: One click to return to normal operations
+
+---
+
+### STEP 10.3: Bind Toggle Event
+
+**CLICK:** demoModeToggle → Event Handlers
+
+**Event:** Change
+
+**Actions:**
+```
+Action 1: Run query
+  Query: demoModeController
+```
+
+**Result:** Toggle switches between demo-ready and operational configurations
+
+---
+
 ## ✅ FINAL VALIDATION (5 min)
 
-### STEP 9.1: Test V3 Filter Bar
+### STEP 11.1: Test V3 Filter Bar
 
 ```
 ☐ Date range picker shows default 30 days
