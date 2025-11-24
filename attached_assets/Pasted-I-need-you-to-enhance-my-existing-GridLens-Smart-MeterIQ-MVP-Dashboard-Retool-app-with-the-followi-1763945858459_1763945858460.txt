@@ -1,0 +1,234 @@
+I need you to enhance my existing "GridLens Smart MeterIQ MVP Dashboard" Retool app with the following features. 
+Build everything end-to-end, create any missing transformers/queries/components, and bind to my existing IQOverview query.
+
+IMPORTANT:
+- If any component names differ in my app, detect and match the correct ones automatically.
+- Keep styling consistent with my dark theme.
+- Use IQOverview as the primary query. 
+- Do not break existing bindings.
+
+========================================
+1) ADD SPARKLINE TRENDS (per meter)
+========================================
+Goal:
+Show a tiny sparkline trend of recent usage/health per meter in At-Risk Meters table and Worst 10 tables.
+
+Steps:
+A. Create a transformer named meterTrendSeries
+Code:
+const meters = IQOverview.data?.meters || IQOverview.data?.atRiskMeters || [];
+return meters.map(m => {
+  const id = m.meterId ?? m.meter_id;
+  const series = m.trend ?? m.usageTrend ?? m.healthTrend ?? m.lastReads ?? [];
+  return { meterId: id, series };
+});
+
+B. In the At-Risk Meters table:
+- Add a new column called "Trend"
+- Column type: Sparkline
+- Data for sparkline:
+  {{ (meterTrendSeries.value.find(t => t.meterId === (currentRow.meterId ?? currentRow.meter_id))?.series) || [] }}
+
+If Sparkline column type is unavailable, use a small Line Chart embedded in a column cell.
+
+========================================
+2) ADD “WORST 10” TABLES
+========================================
+Goal:
+Create two new tables:
+- worst10HealthTable (lowest health scores)
+- worst10BillingTable (highest billing flag counts)
+
+Steps:
+A. Transformer worst10Health
+Code:
+const meters = IQOverview.data?.meters || [];
+return [...meters]
+  .sort((a,b) => (a.score ?? 999) - (b.score ?? 999))
+  .slice(0,10);
+
+B. Transformer worst10Billing
+Code:
+const meters = IQOverview.data?.meters || [];
+return [...meters]
+  .sort((a,b) => (b.flagCount ?? b.flags?.length ?? 0) - (a.flagCount ?? a.flags?.length ?? 0))
+  .slice(0,10);
+
+C. Add two tables under existing analytics:
+1. Table name: worst10HealthTable
+   Data source:
+   {{ worst10Health.value }}
+   Columns: meterId, score, band, issues, Trend (sparkline same as section 1)
+
+2. Table name: worst10BillingTable
+   Data source:
+   {{ worst10Billing.value }}
+   Columns: meterId, flagCount, flags, Trend (optional)
+
+========================================
+3) ADD ALERT CARDS (critical / warning / good)
+========================================
+Goal:
+Show 3 colored KPI/Stat cards at top:
+- Critical count
+- Warning count
+- Good/Healthy count
+
+Steps:
+A. Transformer alertCounts
+Code:
+const meters = IQOverview.data?.meters || [];
+let critical=0, warning=0, good=0;
+meters.forEach(m=>{
+  const band = (m.band ?? "").toLowerCase();
+  if (band === "critical") critical++;
+  else if (band === "poor" || band === "fair" || band === "warning") warning++;
+  else good++;
+});
+return { critical, warning, good };
+
+B. Add 3 Stat cards in header row:
+1. criticalCard
+   Label: "Critical"
+   Value: {{ alertCounts.value.critical }}
+   Style: red/bold dark theme
+
+2. warningCard
+   Label: "Warning"
+   Value: {{ alertCounts.value.warning }}
+   Style: yellow/orange dark theme
+
+3. goodCard
+   Label: "Healthy"
+   Value: {{ alertCounts.value.good }}
+   Style: green dark theme
+
+========================================
+4) ADD METER SEARCH BAR
+========================================
+Goal:
+Global search input that filters At-Risk table + Worst 10 tables.
+
+Steps:
+A. Add Text Input component at top:
+   Name: meterSearchInput
+   Placeholder: "Search meter ID…"
+   Initial value: ""
+
+B. Create filtered transformers:
+
+filteredAtRiskMeters:
+const rows = IQOverview.data?.atRiskMeters || [];
+const q = (meterSearchInput.value || "").toLowerCase();
+if (!q) return rows;
+return rows.filter(r => String(r.meterId ?? r.meter_id).toLowerCase().includes(q));
+
+filteredWorst10Health:
+const rows = worst10Health.value || [];
+const q = (meterSearchInput.value || "").toLowerCase();
+if (!q) return rows;
+return rows.filter(r => String(r.meterId ?? r.meter_id).toLowerCase().includes(q));
+
+filteredWorst10Billing:
+const rows = worst10Billing.value || [];
+const q = (meterSearchInput.value || "").toLowerCase();
+if (!q) return rows;
+return rows.filter(r => String(r.meterId ?? r.meter_id).toLowerCase().includes(q));
+
+C. Rebind tables:
+- At-Risk Meters table data:
+  {{ filteredAtRiskMeters.value }}
+- worst10HealthTable data:
+  {{ filteredWorst10Health.value }}
+- worst10BillingTable data:
+  {{ filteredWorst10Billing.value }}
+
+========================================
+5) AUTO-REFRESH SETTINGS
+========================================
+Goal:
+Add a toggle + interval selector to auto-refresh IQOverview.
+
+Steps:
+A. Add Toggle switch:
+   Name: autoRefreshToggle
+   Label: "Auto-refresh"
+   Default: false
+
+B. Add Dropdown:
+   Name: refreshIntervalSelect
+   Values: 30s, 1m, 5m, 15m
+   Default: 5m
+
+C. Add JS Query named autoRefreshController:
+Code:
+const enabled = autoRefreshToggle.value;
+const map = { "30s":30000, "1m":60000, "5m":300000, "15m":900000 };
+const intervalLabel = refreshIntervalSelect.value || "5m";
+const intervalMs = map[intervalLabel];
+
+if (enabled) {
+  utils.setInterval(() => { IQOverview.trigger(); }, intervalMs, "iq_auto_refresh");
+} else {
+  utils.clearInterval("iq_auto_refresh");
+}
+
+D. Add Event handlers:
+- On toggle change OR interval change → trigger autoRefreshController
+
+========================================
+6) EXPORT TO CSV BUTTONS
+========================================
+Goal:
+Each major table has a “Download CSV” button.
+
+Steps:
+A. For each table:
+- At-Risk table
+- riskMapTable
+- billingTopFlagsTable
+- billingWorstMetersTable
+- worst10HealthTable
+- worst10BillingTable
+
+Add a small button in toolbar:
+Name pattern: export_<tableName>
+
+On click action:
+  Download data as CSV
+  Data:
+  {{ <tableName>.data }}
+
+Retool should automatically wire correct table references.
+
+========================================
+7) GRIDLENS BRAND HEADER / LOGO
+========================================
+Goal:
+Add a clean brand header row with GridLens name + optional logo.
+
+Steps:
+A. Add a Container at top named brandHeader
+B. Inside:
+1. Image component named gridlensLogo
+   - Use placeholder if logo not available.
+   - Align left.
+2. Text component named gridlensTitle
+   Text:
+   "GridLens Smart MeterIQ™ Dashboard"
+   Subtext:
+   "Modernizing the Grid Through Data"
+
+C. Style:
+- Keep dark theme
+- Title large bold white
+- Subtext smaller gray
+- Add subtle divider line below header
+
+========================================
+FINAL CHECKS
+========================================
+- Ensure no existing components break.
+- Ensure new components are responsive.
+- Confirm all data bindings resolve without errors.
+- If any field names differ in my API, gracefully fall back and do not throw errors.
