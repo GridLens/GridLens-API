@@ -1450,6 +1450,92 @@ app.post("/api/contact", async (req, res) => {
   }
 });
 
+// --- PILOT SIGNUP BACKEND ---------------------------------------
+app.post("/api/pilot-signup", async (req, res) => {
+  const {
+    full_name,
+    email,
+    utility_name,
+    meters_in_scope,
+    role_title,
+    phone,
+    city_state,
+    notes,
+    heard_about_us,
+    status,
+    source_page,
+    utm_campaign,
+    utm_source,
+    utm_medium
+  } = req.body || {};
+
+  // Required fields
+  if (!full_name || !email || !utility_name) {
+    return res.status(400).json({
+      ok: false,
+      error: "Missing required fields: full_name, email, utility_name"
+    });
+  }
+
+  const sql = `
+    INSERT INTO pilot_signups (
+      full_name,
+      email,
+      utility_name,
+      meters_in_scope,
+      role_title,
+      phone,
+      city_state,
+      notes,
+      heard_about_us,
+      status,
+      source_page,
+      utm_campaign,
+      utm_source,
+      utm_medium
+    )
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15);
+  `;
+
+  const params = [
+    full_name,
+    email,
+    utility_name,
+    meters_in_scope ? Number(meters_in_scope) : null,
+    role_title || null,
+    phone || null,
+    city_state || null,
+    notes || null,
+    heard_about_us || null,
+    status || "New",
+    source_page || null,
+    utm_campaign || null,
+    utm_source || null,
+    utm_medium || null
+  ];
+
+  try {
+    await insertRow(sql, params);
+
+    safeLog("🚀 New pilot_signup", {
+      full_name,
+      email,
+      utility_name,
+      meters_in_scope
+    });
+
+    return res.json({
+      ok: true,
+      message: "Pilot signup saved. GridLens team will follow up."
+    });
+  } catch (err) {
+    console.error("Error saving pilot signup:", err);
+    return res
+      .status(500)
+      .json({ ok: false, error: "Server error saving pilot signup" });
+  }
+});
+
 // -----------------------------
 // 404 Handler - Route not found
 // -----------------------------
