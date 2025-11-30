@@ -7,39 +7,9 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
-import pg from "pg";
-const { Pool } = pg;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// -----------------------------------------------------
-// PostgreSQL Database Connection
-// -----------------------------------------------------
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
-
-// -----------------------------------------------------
-// Helper functions: insertRow + safeLog
-// -----------------------------------------------------
-async function insertRow(sql, params = []) {
-  const client = await pool.connect();
-  try {
-    await client.query(sql, params);
-  } finally {
-    client.release();
-  }
-}
-
-function safeLog(label, data) {
-  try {
-    console.log(label, JSON.stringify(data));
-  } catch {
-    console.log(label, data);
-  }
-}
-// -----------------------------------------------------
 
 const app = express();
 
