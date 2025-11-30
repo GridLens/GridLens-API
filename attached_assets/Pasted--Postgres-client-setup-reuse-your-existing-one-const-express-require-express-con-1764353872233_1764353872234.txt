@@ -1,0 +1,204 @@
+// --- Postgres client setup (reuse your existing one) ---
+const express = require("express");
+const { Pool } = require("pg");
+const app = express();
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL  // or your Azure connection params
+});
+
+// Simple helper
+async function query(text, params = []) {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(text, params);
+    return res.rows;
+  } finally {
+    client.release();
+  }
+}
+
+// Health check
+app.get("/health", async (req, res) => {
+  try {
+    await query("SELECT 1");
+    res.json({ status: "ok", app: "gridlens-api", db: "ok" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ status: "error", error: err.message });
+  }
+});
+
+// Fleet overview summary (similar to iqOverview KPIs)
+app.get("/api/fleet/summary", async (req, res) => {
+  const { start_date, end_date, city } = req.query;
+
+  const params = [];
+  let idx = 1;
+
+  let where = "health_date BETWEEN $1 AND $2";
+  params.push(start_date || "2025-06-01");
+  params.push(end_date || new Date().toISOString().slice(0, 10));
+
+  if (city && city !== "All") {
+    idx = params.length + 1;
+    where += ` AND m.city = $${idx}`;
+    params.push(city);
+  }
+
+  const sql = `
+    SELECT
+      COUNT(DISTINCT m.meter_id) AS total_meters,
+      ROUND(AVG(h.health_score), 1) AS avg_health_score,
+      COUNT(*) FILTER (WHERE h.health_score < 60) AS at_risk_meters,
+      COUNT(*) FILTER (WHERE h.tamper_flag OR h.outage_count > 0) AS critical_meters
+    FROM meter_health_daily h
+    JOIN meters m ON m.meter_id = h.meter_id
+    WHERE ${where};
+  `;
+
+  try {
+    const rows = await query(sql, params);
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Fleet table (similar to page1 table)
+app.get("/api/fleet/meters", async (req, res) => {
+  const { start_date, end_date, city, min_health } = req.query;
+  const params = [];
+  let where = "h.health_date BETWEEN $1 AND $2";
+  params.push(start_date || "2025-06-01");
+  params.push(end_date || new Date().toISOString().slice(0, 10));
+
+  let idx = params.length + 1;
+  if (city && city !== "All") {
+    where += ` AND m.city = $${idx++}`;
+    params.push(city);
+  }
+  if (min_health) {
+    where += ` AND h.health_score >= $${idx}`;
+    params.push(Number(min_health));
+  }
+
+  const sql = `
+    SELECT
+      m.meter_id,
+      m.utility_meter_id,
+      m.service_address,
+      m.city,
+      h.health_score,
+      h.comms_success_rate,
+      h.outage_count,
+      h.tamper_flag
+    FROM meter_health_daily h
+    JOIN meters m ON m.meter_id = h.meter_id
+    WHERE ${where}
+    ORDER BY h.health_score ASC;
+  `;
+
+  try {
+    const rows = await query(sql, params);
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Meter detail (for page2 + API consumers)
+app.get("/api/meters/:meterId/detail", async (req, res) => {
+  const meterId = Number(req.params.meterId);
+
+  const latestSql = `
+    SELECT
+      m.meter_id,
+      m.utility_meter_id,
+      m.service_address,
+      m.city,
+      h.health_date,
+      h.health_score,
+      h.comms_success_rate,
+      h.outage_count,
+      h.tamper_flag
+    FROM meter_health_daily h
+    JOIN meters m ON m.meter_id = h.meter_id
+    WHERE m.meter_id = $1
+    ORDER BY h.health_date DESC
+    LIMIT 1;
+  `;
+
+  const historySql = `
+    SELECT
+      health_date,
+      health_score,
+      comms_success_rate,
+      outage_count,
+      tamper_flag
+    FROM meter_health_daily
+    WHERE meter_id = $1
+      AND health_date >= CURRENT_DATE - INTERVAL '30 days'
+    ORDER BY health_date ASC;
+  `;
+
+  try {
+    const [latest] = await query(latestSql, [meterId]);
+    const history = await query(historySql, [meterId]);
+    res.json({ latest, history });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Events endpoint (for page3 / external)
+app.get("/api/events", async (req, res) => {
+  const { start_date, end_date, city, severity } = req.query;
+
+  const params = [];
+  let where = "event_date BETWEEN $1 AND $2";
+  params.push(start_date || "2025-10-01");
+  params.push(end_date || new Date().toISOString().slice(0, 10));
+
+  let idx = params.length + 1;
+  if (city && city !== "All") {
+    where += ` AND city = $${idx++}`;
+    params.push(city);
+  }
+  if (severity && severity !== "All") {
+    where += ` AND severity = $${idx}`;
+    params.push(severity);
+  }
+
+  const sql = `
+    SELECT
+      event_id,
+      event_date,
+      meter_id,
+      city,
+      severity,
+      tamper_flag,
+      outage_flag,
+      low_health_flag
+    FROM ami_events
+    WHERE ${where}
+    ORDER BY event_date DESC;
+  `;
+
+  try {
+    const rows = await query(sql, params);
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Start server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 GridLens API running on port ${PORT}`);
+});
