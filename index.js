@@ -1364,6 +1364,93 @@ app.get("/dashboard/overview", (req, res) => {
 });
 
 // -----------------------------
+// Helper Functions
+// -----------------------------
+async function insertRow(sql, params) {
+  const { pool } = await import('./db.js');
+  return pool.query(sql, params);
+}
+
+function safeLog(label, data) {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] ${label}`, JSON.stringify(data, null, 2));
+}
+
+// --- CONTACT FORM BACKEND ---------------------------------------
+app.post("/api/contact", async (req, res) => {
+  const {
+    full_name,
+    email,
+    utility_name,
+    role_title,
+    phone,
+    message,
+    source_page,
+    utm_campaign,
+    utm_source,
+    utm_medium
+  } = req.body || {};
+
+  // Basic validation
+  if (!full_name || !email) {
+    return res.status(400).json({
+      ok: false,
+      error: "Missing required fields: full_name and email"
+    });
+  }
+
+  const sql = `
+    INSERT INTO contact_leads (
+      full_name,
+      email,
+      utility_name,
+      role_title,
+      phone,
+      message,
+      source_page,
+      utm_campaign,
+      utm_source,
+      utm_medium
+    )
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);
+  `;
+
+  const params = [
+    full_name,
+    email,
+    utility_name || null,
+    role_title || null,
+    phone || null,
+    message || null,
+    source_page || null,
+    utm_campaign || null,
+    utm_source || null,
+    utm_medium || null
+  ];
+
+  try {
+    await insertRow(sql, params);
+
+    safeLog("📨 New contact_lead", {
+      full_name,
+      email,
+      utility_name,
+      source_page
+    });
+
+    return res.json({
+      ok: true,
+      message: "Contact lead saved. GridLens will reach out shortly."
+    });
+  } catch (err) {
+    console.error("Error saving contact lead:", err);
+    return res
+      .status(500)
+      .json({ ok: false, error: "Server error saving contact lead" });
+  }
+});
+
+// -----------------------------
 // 404 Handler - Route not found
 // -----------------------------
 app.use((req, res) => {
