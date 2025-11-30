@@ -1453,7 +1453,7 @@ app.post("/api/pilot-signup", async (req, res) => {
     utm_medium
   } = req.body || {};
 
-  // Required fields
+  // Basic validation
   if (!full_name || !email || !utility_name) {
     return res.status(400).json({
       ok: false,
@@ -1478,7 +1478,11 @@ app.post("/api/pilot-signup", async (req, res) => {
       utm_source,
       utm_medium
     )
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15);
+    VALUES (
+      $1, $2, $3, $4, $5,
+      $6, $7, $8, $9, $10,
+      $11, $12, $13, $14
+    );
   `;
 
   const params = [
@@ -1501,7 +1505,7 @@ app.post("/api/pilot-signup", async (req, res) => {
   try {
     await insertRow(sql, params);
 
-    safeLog("🚀 New pilot_signup", {
+    console.log("🚀 New pilot_signup", {
       full_name,
       email,
       utility_name,
