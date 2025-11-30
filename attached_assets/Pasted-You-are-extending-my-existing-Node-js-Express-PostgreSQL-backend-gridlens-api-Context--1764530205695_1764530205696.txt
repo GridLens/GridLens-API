@@ -1,0 +1,82 @@
+You are extending my existing Node.js + Express + PostgreSQL backend ("gridlens-api").
+
+Context:
+- I already have an Express app running with a pg Pool and a helper:
+
+  async function query(text, params = []) {
+    const client = await pool.connect();
+    try {
+      const res = await client.query(text, params);
+      return res.rows;
+    } finally {
+      client.release();
+    }
+  }
+
+- My API already has routes like:
+  - GET /health
+  - GET /api/fleet/summary
+  - GET /api/fleet/meters
+  - GET /api/meters/:meterId/detail
+  - GET /api/events
+
+- I previously created a "contact_leads" table in my Postgres "gridlens" schema with columns:
+  lead_id (PK), name, email, utility_name, role_title, phone, message, source, created_at.
+
+Goal for this task (3.2):
+Add a backend endpoint that my Webflow contact form can POST to, so every submission is stored in the contact_leads table.
+
+High-level requirements:
+1) Create a new Express POST endpoint:
+
+   POST /api/contact
+
+2) The endpoint should:
+   - Expect JSON or URL-encoded form data from Webflow.
+   - Safely read these fields from the request:
+
+     - name          (required)
+     - email         (required)
+     - utility_name  (optional)
+     - role_title    (optional)
+     - phone         (optional)
+     - message       (optional)
+
+   - If name or email is missing, respond with HTTP 400 and a clear error JSON.
+   - Insert a new row into gridlens.contact_leads using parameterized SQL to avoid SQL injection.
+   - Set "source" to 'webflow-contact' by default.
+   - Return a JSON success response like:
+
+     {
+       "status": "ok",
+       "lead_id": <new id>,
+       "message": "Contact saved successfully"
+     }
+
+3) Use the existing pg Pool + query helper. Do NOT create a second Pool.
+4) Make sure the INSERT uses:
+
+   SET search_path TO gridlens, public;
+
+   INSERT INTO contact_leads (name, email, utility_name, role_title, phone, message, source)
+   VALUES ($1, $2, $3, $4, $5, $6, $7)
+   RETURNING lead_id;
+
+5) Add basic error handling:
+   - Log the error to console.
+   - Respond with HTTP 500 and a JSON body like:
+     { "status": "error", "error": "<message>" }
+
+6) Keep CORS and JSON parsing:
+   - Assume `app.use(cors())` and `app.use(express.json())` are already in place.
+   - If not, show me where to add them at the top of index.js.
+
+7) At the end, show a short example of how my Webflow form should be configured:
+   - Method: POST
+   - Action: https://<my-api-url>/api/contact
+   - Fields mapped to: name, email, utility_name, role_title, phone, message
+
+Important:
+- Do NOT remove or rewrite my existing routes.
+- Just append the new route(s) to index.js using the pattern already in the file.
+- Write clean, production-quality Express code with clear comments at the top of the new section (e.g., "// Contact form endpoint").

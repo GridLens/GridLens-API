@@ -1377,76 +1377,66 @@ function safeLog(label, data) {
 }
 
 // --- CONTACT FORM BACKEND ---------------------------------------
+// POST /api/contact
+// Receives form submissions from Webflow contact form
+// Stores leads in gridlens.contact_leads table
 app.post("/api/contact", async (req, res) => {
   const {
-    full_name,
+    name,
     email,
     utility_name,
     role_title,
     phone,
-    message,
-    source_page,
-    utm_campaign,
-    utm_source,
-    utm_medium
+    message
   } = req.body || {};
 
-  // Basic validation
-  if (!full_name || !email) {
+  // Validate required fields
+  if (!name || !email) {
     return res.status(400).json({
-      ok: false,
-      error: "Missing required fields: full_name and email"
+      status: "error",
+      error: "Missing required fields: name and email"
     });
   }
 
   const sql = `
-    INSERT INTO contact_leads (
-      full_name,
-      email,
-      utility_name,
-      role_title,
-      phone,
-      message,
-      source_page,
-      utm_campaign,
-      utm_source,
-      utm_medium
-    )
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);
+    SET search_path TO gridlens, public;
+    INSERT INTO contact_leads (name, email, utility_name, role_title, phone, message, source)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    RETURNING lead_id;
   `;
 
   const params = [
-    full_name,
+    name,
     email,
     utility_name || null,
     role_title || null,
     phone || null,
     message || null,
-    source_page || null,
-    utm_campaign || null,
-    utm_source || null,
-    utm_medium || null
+    'webflow-contact'
   ];
 
   try {
-    await insertRow(sql, params);
+    const result = await insertRow(sql, params);
+    const lead_id = result.rows?.[0]?.lead_id;
 
     safeLog("📨 New contact_lead", {
-      full_name,
+      lead_id,
+      name,
       email,
-      utility_name,
-      source_page
+      utility_name
     });
 
     return res.json({
-      ok: true,
-      message: "Contact lead saved. GridLens will reach out shortly."
+      status: "ok",
+      lead_id,
+      message: "Contact saved successfully"
     });
   } catch (err) {
     console.error("Error saving contact lead:", err);
-    return res
-      .status(500)
-      .json({ ok: false, error: "Server error saving contact lead" });
+    return res.status(500).json({
+      status: "error",
+      error: err.message || "Server error saving contact lead"
+    });
   }
 });
 
