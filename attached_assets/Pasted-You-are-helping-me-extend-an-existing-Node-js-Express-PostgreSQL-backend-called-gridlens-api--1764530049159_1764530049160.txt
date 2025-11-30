@@ -1,0 +1,52 @@
+You are helping me extend an existing Node.js + Express + PostgreSQL backend called "gridlens-api".
+
+Context:
+- The app is already set up with Express and the "pg" Pool.
+- It connects to my Azure PostgreSQL using process.env.DATABASE_URL.
+- We are already using a helper like:
+
+  async function query(text, params = []) {
+    const client = await pool.connect();
+    try {
+      const res = await client.query(text, params);
+      return res.rows;
+    } finally {
+      client.release();
+    }
+  }
+
+- We are using the "gridlens" schema for my tables (meters, meter_health_daily, etc.). We often run: `SET search_path TO gridlens, public;` before SELECT/INSERT.
+
+Goal for this task (3.1):
+Create a SQL definition for a new table called "contact_leads" in the "gridlens" schema, and show me how to run it safely.
+
+Requirements:
+1) The table name must be: gridlens.contact_leads
+2) Columns:
+   - lead_id        BIGSERIAL PRIMARY KEY
+   - name           TEXT NOT NULL
+   - email          TEXT NOT NULL
+   - utility_name   TEXT            -- e.g. "Holly Springs Utility Department"
+   - role_title     TEXT            -- e.g. "GM", "Engineering Manager"
+   - phone          TEXT
+   - message        TEXT
+   - source         TEXT DEFAULT 'webflow-contact'  -- where the lead came from
+   - created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+3) The SQL must be idempotent (use CREATE TABLE IF NOT EXISTS) so I can run it multiple times without errors.
+4) It should explicitly set the search path to "gridlens, public" so the table is created in the correct schema.
+
+Deliverables:
+A) A single SQL script I can run in pgAdmin / Query Tool, similar to:
+
+   SET search_path TO gridlens, public;
+
+   CREATE TABLE IF NOT EXISTS contact_leads (
+     ...
+   );
+
+B) Then, show me a short Node.js helper function (optional) that I can call like:
+   await query("INSERT INTO contact_leads ...", [...]);
+
+Important:
+- DO NOT rewrite or replace my entire index.js file.
+- Just give me the SQL script and, optionally, a short code snippet that uses my existing "query" helper.
