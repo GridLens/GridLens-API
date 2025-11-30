@@ -1378,65 +1378,59 @@ function safeLog(label, data) {
 
 // --- CONTACT FORM BACKEND ---------------------------------------
 // POST /api/contact
-// Receives form submissions from Webflow contact form
-// Stores leads in gridlens.contact_leads table
+// Handle contact form submissions from Webflow
+// Webflow submits as urlencoded by default, so handle both JSON and form
 app.post("/api/contact", async (req, res) => {
-  const {
-    name,
-    email,
-    utility_name,
-    role_title,
-    phone,
-    message
-  } = req.body || {};
-
-  // Validate required fields
-  if (!name || !email) {
-    return res.status(400).json({
-      status: "error",
-      error: "Missing required fields: name and email"
-    });
-  }
-
-  const sql = `
-    SET search_path TO gridlens, public;
-    INSERT INTO contact_leads (name, email, utility_name, role_title, phone, message, source)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
-    RETURNING lead_id;
-  `;
-
-  const params = [
-    name,
-    email,
-    utility_name || null,
-    role_title || null,
-    phone || null,
-    message || null,
-    'webflow-contact'
-  ];
-
   try {
-    const result = await insertRow(sql, params);
-    const lead_id = result.rows?.[0]?.lead_id;
+    const body = req.body || {};
+
+    const full_name = body.full_name || body.name || body["Full name"] || "";
+    const email = body.email || body["Work email"] || "";
+    const utility_name = body.utility_name || body["Utility or organization name"] || "";
+    const role_title = body.role_title || body["Role / title"] || null;
+    const topic = body.topic || body["Topic"] || null;
+    const message = body.message || body["Message"] || "";
+
+    if (!full_name || !email || !utility_name || !message) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const sql = `
+      SET search_path TO gridlens, public;
+
+      INSERT INTO contact_leads
+        (full_name, email, utility_name, role_title, topic, message)
+      VALUES
+        ($1, $2, $3, $4, $5, $6)
+      RETURNING id, created_at;
+    `;
+
+    const result = await insertRow(sql, [
+      full_name,
+      email,
+      utility_name,
+      role_title,
+      topic,
+      message
+    ]);
+
+    const row = result.rows?.[0];
 
     safeLog("📨 New contact_lead", {
-      lead_id,
-      name,
+      id: row?.id,
+      full_name,
       email,
       utility_name
     });
 
-    return res.json({
+    res.json({
       status: "ok",
-      lead_id,
-      message: "Contact saved successfully"
+      lead_id: row?.id,
+      created_at: row?.created_at
     });
   } catch (err) {
-    console.error("Error saving contact lead:", err);
-    return res.status(500).json({
-      status: "error",
-      error: err.message || "Server error saving contact lead"
-    });
+    console.error("Error in /api/contact:", err);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
