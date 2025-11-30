@@ -1453,7 +1453,7 @@ app.post("/api/pilot-signup", async (req, res) => {
     utm_medium
   } = req.body || {};
 
-  // Basic validation
+  // Required fields
   if (!full_name || !email || !utility_name) {
     return res.status(400).json({
       ok: false,
@@ -1478,8 +1478,7 @@ app.post("/api/pilot-signup", async (req, res) => {
       utm_source,
       utm_medium
     )
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-    RETURNING id, created_at;
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14);
   `;
 
   const params = [
@@ -1500,28 +1499,25 @@ app.post("/api/pilot-signup", async (req, res) => {
   ];
 
   try {
-    const result = await insertRow(sql, params);
-    const inserted = result.rows?.[0] || null;
+    await insertRow(sql, params);
 
-    console.log("🚀 New pilot_signup", {
+    console.log("🚀 New pilot signup:", {
       full_name,
       email,
       utility_name,
-      meters_in_scope,
-      id: inserted?.id
+      meters_in_scope
     });
 
     return res.json({
       ok: true,
-      message: "Pilot signup saved. GridLens team will follow up.",
-      id: inserted?.id || null,
-      created_at: inserted?.created_at || null
+      message: "Pilot signup saved. GridLens team will follow up."
     });
   } catch (err) {
     console.error("Error saving pilot signup:", err);
-    return res
-      .status(500)
-      .json({ ok: false, error: "Server error saving pilot signup" });
+    return res.status(500).json({
+      ok: false,
+      error: "Server error saving pilot signup"
+    });
   }
 });
 
