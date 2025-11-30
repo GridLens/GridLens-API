@@ -1,6 +1,7 @@
 {
   "name": "gridlens-api",
   "version": "1.0.0",
+  "type": "module",
   "description": "GridLens Energy backend API for Smart MeterIQ & FieldOps",
   "main": "index.js",
   "scripts": {

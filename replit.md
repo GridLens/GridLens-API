@@ -11,7 +11,7 @@ Preferred communication style: Simple, everyday language.
 ### Backend Architecture
 - **Technology Stack**: Node.js (ES Modules), Express.js 4.18.2, JavaScript (ES6+).
 - **Port**: 5000 (webview-compatible).
-- **Data Layer**: In-memory data structures for Meters, AMI Events, and Usage Reads for rapid prototyping. Future plans include migration to PostgreSQL.
+- **Data Layer**: PostgreSQL database (Neon-backed) with connection pool. In-memory data structures retained for MVP demo data. Helper functions `insertRow()` and `safeLog()` available for database operations.
 
 ### API Endpoints
 The API offers 15 endpoints covering:
@@ -43,9 +43,8 @@ The project includes 15 comprehensive Retool implementation guides for building 
 ### Runtime Dependencies
 - **Express.js (^4.18.2)**: HTTP server and routing framework.
 - **dotenv (^16.3.1)**: Environment variable management.
-
-### Planned Dependencies
-- **PostgreSQL Client - pg (^8.11.0)**: For future database integration.
+- **cors (^2.8.5)**: Cross-origin resource sharing middleware.
+- **pg (^8.11.5)**: PostgreSQL client for database operations.
 
 ### External Services
 - **AMI Network Integration**: Designed for future integration with Advanced Metering Infrastructure networks for real-time data and events.
