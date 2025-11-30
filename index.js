@@ -1478,11 +1478,8 @@ app.post("/api/pilot-signup", async (req, res) => {
       utm_source,
       utm_medium
     )
-    VALUES (
-      $1, $2, $3, $4, $5,
-      $6, $7, $8, $9, $10,
-      $11, $12, $13, $14
-    );
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+    RETURNING id, created_at;
   `;
 
   const params = [
@@ -1503,18 +1500,22 @@ app.post("/api/pilot-signup", async (req, res) => {
   ];
 
   try {
-    await insertRow(sql, params);
+    const result = await insertRow(sql, params);
+    const inserted = result.rows?.[0] || null;
 
     console.log("🚀 New pilot_signup", {
       full_name,
       email,
       utility_name,
-      meters_in_scope
+      meters_in_scope,
+      id: inserted?.id
     });
 
     return res.json({
       ok: true,
-      message: "Pilot signup saved. GridLens team will follow up."
+      message: "Pilot signup saved. GridLens team will follow up.",
+      id: inserted?.id || null,
+      created_at: inserted?.created_at || null
     });
   } catch (err) {
     console.error("Error saving pilot signup:", err);
