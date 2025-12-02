@@ -1524,34 +1524,12 @@ app.post("/api/contact", async (req, res) => {
 });
 
 // --- PILOT SIGNUP BACKEND ---------------------------------------
+// Handle Contact + Pilot form submissions from Webflow
 app.post("/api/pilot-signup", async (req, res) => {
-  const {
-    full_name,
-    email,
-    utility_name,
-    meters_in_scope,
-    role_title,
-    phone,
-    city_state,
-    notes,
-    heard_about_us,
-    status,
-    source_page,
-    utm_campaign,
-    utm_source,
-    utm_medium
-  } = req.body || {};
-
-  // Required fields
-  if (!full_name || !email || !utility_name) {
-    return res.status(400).json({
-      ok: false,
-      error: "Missing required fields: full_name, email, utility_name"
-    });
-  }
-
-  const sql = `
-    INSERT INTO pilot_signups (
+  try {
+    // Webflow will send x-www-form-urlencoded by default
+    const {
+      form_type,         // 'contact' or 'pilot'
       full_name,
       email,
       utility_name,
@@ -1561,78 +1539,105 @@ app.post("/api/pilot-signup", async (req, res) => {
       city_state,
       notes,
       heard_about_us,
-      status,
       source_page,
       utm_campaign,
       utm_source,
       utm_medium
-    )
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-    RETURNING id, created_at;
-  `;
+    } = req.body || {};
 
-  const params = [
-    full_name,
-    email,
-    utility_name,
-    meters_in_scope ? Number(meters_in_scope) : null,
-    role_title || null,
-    phone || null,
-    city_state || null,
-    notes || null,
-    heard_about_us || null,
-    status || "New",
-    source_page || null,
-    utm_campaign || null,
-    utm_source || null,
-    utm_medium || null
-  ];
+    if (!full_name || !email) {
+      return res.status(400).json({ error: "full_name and email are required" });
+    }
 
-  try {
+    const metersParsed =
+      meters_in_scope && meters_in_scope !== ""
+        ? parseInt(meters_in_scope, 10)
+        : null;
+
+    const sql = `
+      INSERT INTO pilot_signups (
+        form_type,
+        full_name,
+        email,
+        utility_name,
+        meters_in_scope,
+        role_title,
+        phone,
+        city_state,
+        notes,
+        heard_about_us,
+        source_page,
+        utm_campaign,
+        utm_source,
+        utm_medium
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+      RETURNING id, created_at;
+    `;
+
+    const params = [
+      form_type || "pilot",
+      full_name || "",
+      email || "",
+      utility_name || null,
+      metersParsed,
+      role_title || null,
+      phone || null,
+      city_state || null,
+      notes || null,
+      heard_about_us || null,
+      source_page || null,
+      utm_campaign || null,
+      utm_source || null,
+      utm_medium || null
+    ];
+
     const result = await insertRow(sql, params);
     const row = result.rows?.[0];
 
     console.log("🚀 New pilot signup:", {
       id: row?.id,
+      form_type: form_type || "pilot",
       full_name,
       email,
       utility_name,
-      meters_in_scope
+      meters_in_scope: metersParsed
     });
 
-    // Send alert email to admin
+    // Fire-and-forget email notification
     const adminEmail = process.env.ADMIN_EMAIL || 'team@gridlensenergy.com';
-    const emailSubject = `🚀 New Pilot Signup: ${utility_name}`;
+    const formLabel = (form_type || 'pilot') === 'contact' ? 'Contact' : 'Pilot Signup';
+    const emailSubject = `🚀 New ${formLabel}: ${utility_name || full_name}`;
     const emailHtml = `
-      <h2>New Pilot Program Signup</h2>
+      <h2>New ${formLabel} Submission</h2>
+      <p><strong>Form Type:</strong> ${form_type || 'pilot'}</p>
       <p><strong>Name:</strong> ${full_name}</p>
       <p><strong>Email:</strong> ${email}</p>
-      <p><strong>Utility:</strong> ${utility_name}</p>
-      <p><strong>Meters in Scope:</strong> ${meters_in_scope || 'Not specified'}</p>
+      <p><strong>Utility:</strong> ${utility_name || 'Not provided'}</p>
+      <p><strong>Meters in Scope:</strong> ${metersParsed || 'Not specified'}</p>
       <p><strong>Role:</strong> ${role_title || 'Not provided'}</p>
       <p><strong>Phone:</strong> ${phone || 'Not provided'}</p>
       <p><strong>Location:</strong> ${city_state || 'Not provided'}</p>
       <p><strong>How they heard about us:</strong> ${heard_about_us || 'Not provided'}</p>
       <p><strong>Notes:</strong> ${notes || 'None'}</p>
       <hr>
-      <p><small>Signup ID: ${row?.id} | Status: ${status || 'New'} | Submitted: ${row?.created_at}</small></p>
+      <p><small>ID: ${row?.id} | Submitted: ${row?.created_at}</small></p>
     `;
-    const emailText = `New Pilot Signup: ${full_name} (${email}) from ${utility_name}. Meters: ${meters_in_scope || 'N/A'}`;
-    
-    await sendNotificationEmail(adminEmail, emailSubject, emailHtml, emailText);
+    const emailText = `New ${formLabel}: ${full_name} (${email}) from ${utility_name || 'N/A'}. Meters: ${metersParsed || 'N/A'}`;
 
-    return res.json({
+    sendNotificationEmail(adminEmail, emailSubject, emailHtml, emailText).catch(err => {
+      console.error("Email send failed:", err.message);
+    });
+
+    // Webflow expects a 200/3xx to count as success
+    return res.status(200).json({
       ok: true,
-      message: "Pilot signup saved. GridLens team will follow up.",
       id: row?.id,
       created_at: row?.created_at
     });
   } catch (err) {
-    console.error("Error saving pilot signup:", err);
-    return res.status(500).json({
-      ok: false,
-      error: "Server error saving pilot signup"
-    });
+    console.error("Error in /api/pilot-signup:", err);
+    return res.status(500).json({ error: "server_error" });
   }
 });
 
