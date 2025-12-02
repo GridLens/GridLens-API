@@ -7,6 +7,7 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
+import sgMail from "@sendgrid/mail";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1376,6 +1377,75 @@ function safeLog(label, data) {
   console.log(`[${timestamp}] ${label}`, JSON.stringify(data, null, 2));
 }
 
+// SendGrid email helper using Replit connector
+
+async function getSendGridClient() {
+  const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
+  const xReplitToken = process.env.REPL_IDENTITY 
+    ? 'repl ' + process.env.REPL_IDENTITY 
+    : process.env.WEB_REPL_RENEWAL 
+    ? 'depl ' + process.env.WEB_REPL_RENEWAL 
+    : null;
+
+  if (!xReplitToken || !hostname) {
+    console.warn('SendGrid not configured - emails will be skipped');
+    return null;
+  }
+
+  try {
+    const response = await fetch(
+      'https://' + hostname + '/api/v2/connection?include_secrets=true&connector_names=sendgrid',
+      {
+        headers: {
+          'Accept': 'application/json',
+          'X_REPLIT_TOKEN': xReplitToken
+        }
+      }
+    );
+    const data = await response.json();
+    const connectionSettings = data.items?.[0];
+
+    if (!connectionSettings || !connectionSettings.settings?.api_key || !connectionSettings.settings?.from_email) {
+      console.warn('SendGrid credentials not found - emails will be skipped');
+      return null;
+    }
+
+    sgMail.setApiKey(connectionSettings.settings.api_key);
+    return {
+      client: sgMail,
+      fromEmail: connectionSettings.settings.from_email
+    };
+  } catch (err) {
+    console.error('Error getting SendGrid client:', err.message);
+    return null;
+  }
+}
+
+async function sendNotificationEmail(to, subject, htmlContent, textContent) {
+  try {
+    const sg = await getSendGridClient();
+    if (!sg) {
+      console.log('SendGrid not available - skipping email notification');
+      return false;
+    }
+
+    const msg = {
+      to,
+      from: sg.fromEmail,
+      subject,
+      text: textContent,
+      html: htmlContent
+    };
+
+    await sg.client.send(msg);
+    console.log(`Email sent successfully to ${to}`);
+    return true;
+  } catch (err) {
+    console.error('SendGrid email error:', err.message);
+    return false;
+  }
+}
+
 // --- CONTACT FORM BACKEND ---------------------------------------
 // POST /api/contact
 // Handle contact form submissions from Webflow
@@ -1422,6 +1492,25 @@ app.post("/api/contact", async (req, res) => {
       email,
       utility_name
     });
+
+    // Send confirmation email to admin
+    const adminEmail = process.env.ADMIN_EMAIL || 'team@gridlensenergy.com';
+    const emailSubject = `New Contact Form Submission from ${full_name}`;
+    const emailHtml = `
+      <h2>New Contact Form Submission</h2>
+      <p><strong>Name:</strong> ${full_name}</p>
+      <p><strong>Email:</strong> ${email}</p>
+      <p><strong>Utility:</strong> ${utility_name}</p>
+      <p><strong>Role:</strong> ${role_title || 'Not provided'}</p>
+      <p><strong>Topic:</strong> ${topic || 'Not provided'}</p>
+      <p><strong>Message:</strong></p>
+      <p>${message}</p>
+      <hr>
+      <p><small>Lead ID: ${row?.id} | Submitted: ${row?.created_at}</small></p>
+    `;
+    const emailText = `New Contact: ${full_name} (${email}) from ${utility_name}. Message: ${message}`;
+    
+    await sendNotificationEmail(adminEmail, emailSubject, emailHtml, emailText);
 
     res.json({
       status: "ok",
@@ -1478,7 +1567,8 @@ app.post("/api/pilot-signup", async (req, res) => {
       utm_source,
       utm_medium
     )
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14);
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+    RETURNING id, created_at;
   `;
 
   const params = [
@@ -1499,18 +1589,43 @@ app.post("/api/pilot-signup", async (req, res) => {
   ];
 
   try {
-    await insertRow(sql, params);
+    const result = await insertRow(sql, params);
+    const row = result.rows?.[0];
 
     console.log("🚀 New pilot signup:", {
+      id: row?.id,
       full_name,
       email,
       utility_name,
       meters_in_scope
     });
 
+    // Send alert email to admin
+    const adminEmail = process.env.ADMIN_EMAIL || 'team@gridlensenergy.com';
+    const emailSubject = `🚀 New Pilot Signup: ${utility_name}`;
+    const emailHtml = `
+      <h2>New Pilot Program Signup</h2>
+      <p><strong>Name:</strong> ${full_name}</p>
+      <p><strong>Email:</strong> ${email}</p>
+      <p><strong>Utility:</strong> ${utility_name}</p>
+      <p><strong>Meters in Scope:</strong> ${meters_in_scope || 'Not specified'}</p>
+      <p><strong>Role:</strong> ${role_title || 'Not provided'}</p>
+      <p><strong>Phone:</strong> ${phone || 'Not provided'}</p>
+      <p><strong>Location:</strong> ${city_state || 'Not provided'}</p>
+      <p><strong>How they heard about us:</strong> ${heard_about_us || 'Not provided'}</p>
+      <p><strong>Notes:</strong> ${notes || 'None'}</p>
+      <hr>
+      <p><small>Signup ID: ${row?.id} | Status: ${status || 'New'} | Submitted: ${row?.created_at}</small></p>
+    `;
+    const emailText = `New Pilot Signup: ${full_name} (${email}) from ${utility_name}. Meters: ${meters_in_scope || 'N/A'}`;
+    
+    await sendNotificationEmail(adminEmail, emailSubject, emailHtml, emailText);
+
     return res.json({
       ok: true,
-      message: "Pilot signup saved. GridLens team will follow up."
+      message: "Pilot signup saved. GridLens team will follow up.",
+      id: row?.id,
+      created_at: row?.created_at
     });
   } catch (err) {
     console.error("Error saving pilot signup:", err);
