@@ -1,0 +1,97 @@
+// Handle Contact + Pilot form submissions from Webflow
+app.post("/api/pilot-signup", async (req, res) => {
+  try {
+    // Webflow will send x-www-form-urlencoded by default
+    const {
+      form_type,         // 'contact' or 'pilot'
+      full_name,
+      email,
+      utility_name,
+      meters_in_scope,
+      role_title,
+      phone,
+      city_state,
+      notes,
+      heard_about_us,
+      source_page,
+      utm_campaign,
+      utm_source,
+      utm_medium
+    } = req.body;
+
+    if (!full_name || !email) {
+      return res.status(400).json({ error: "full_name and email are required" });
+    }
+
+    const metersParsed =
+      meters_in_scope && meters_in_scope !== ""
+        ? parseInt(meters_in_scope, 10)
+        : null;
+
+    const result = await pool.query(
+      `
+      INSERT INTO pilot_signups (
+        form_type,
+        full_name,
+        email,
+        utility_name,
+        meters_in_scope,
+        role_title,
+        phone,
+        city_state,
+        notes,
+        heard_about_us,
+        source_page,
+        utm_campaign,
+        utm_source,
+        utm_medium
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+      RETURNING id, created_at
+      `,
+      [
+        form_type || "pilot",
+        full_name || "",
+        email || "",
+        utility_name || null,
+        metersParsed,
+        role_title || null,
+        phone || null,
+        city_state || null,
+        notes || null,
+        heard_about_us || null,
+        source_page || null,
+        utm_campaign || null,
+        utm_source || null,
+        utm_medium || null
+      ]
+    );
+
+    const row = result.rows[0];
+
+    // Fire-and-forget email notification (we'll define sendNotificationEmail below)
+    sendNotificationEmail({
+      form_type: form_type || "pilot",
+      full_name,
+      email,
+      utility_name,
+      meters_in_scope: metersParsed,
+      role_title,
+      phone,
+      city_state,
+      notes
+    }).catch(err => {
+      console.error("Email send failed:", err.message);
+    });
+
+    // Webflow expects a 200/3xx to count as success
+    return res.status(200).json({
+      ok: true,
+      id: row.id,
+      created_at: row.created_at
+    });
+  } catch (err) {
+    console.error("Error in /api/pilot-signup:", err);
+    return res.status(500).json({ error: "server_error" });
+  }
+});
