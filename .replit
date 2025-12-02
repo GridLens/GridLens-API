@@ -26,10 +26,6 @@ localPort = 5000
 externalPort = 80
 
 [[ports]]
-localPort = 33069
-externalPort = 3001
-
-[[ports]]
 localPort = 44145
 externalPort = 3002
 
@@ -56,3 +52,9 @@ outputType = "webview"
 task = "shell.exec"
 args = "node index.js"
 waitForPort = 5000
+
+[userenv]
+
+[userenv.shared]
+SMTP_PORT = "587"
+NOTIFY_EMAIL = "cdean@gridlensenergy.com"
