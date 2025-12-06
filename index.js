@@ -1072,6 +1072,35 @@ app.get("/api/leak-candidates", async (req, res) => {
 });
 
 // ---------------------------
+// GET /api/events
+// Recent events from PostgreSQL view
+// Query: ?tenant=HSUD (default)
+// ---------------------------
+app.get("/api/events", async (req, res) => {
+  const tenant = req.query.tenant || "HSUD";
+
+  try {
+    const events = await queryDb(`
+      SELECT event_id, meter_id, event_type, raw_code,
+             event_timestamp, zone, details
+      FROM vw_recent_events
+      WHERE tenant_id = $1
+      ORDER BY event_timestamp DESC
+      LIMIT 200
+    `, [tenant]);
+
+    res.json({
+      tenant,
+      events: events.rows
+    });
+
+  } catch (err) {
+    console.error("events error:", err);
+    res.status(500).json({ error: "internal server error" });
+  }
+});
+
+// ---------------------------
 // GET /meters/risk-map
 // Groups Meter Health by a field.
 // Supported groupBy:
