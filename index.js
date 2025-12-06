@@ -1033,6 +1033,45 @@ app.get("/api/meter-health/summary", async (req, res) => {
 });
 
 // ---------------------------
+// GET /api/leak-candidates
+// Leak candidates from PostgreSQL view
+// Query: ?tenant=HSUD (default)
+// ---------------------------
+app.get("/api/leak-candidates", async (req, res) => {
+  const tenant = req.query.tenant || "HSUD";
+
+  try {
+    const result = await queryDb(`
+      SELECT tenant_id, meter_id, address, zone,
+             estimated_loss_volume,
+             estimated_loss_value,
+             days_continuous_flow,
+             risk_score,
+             status
+      FROM vw_leak_candidates
+      WHERE tenant_id = $1
+      ORDER BY risk_score DESC
+      LIMIT 200
+    `, [tenant]);
+
+    const totalLoss = result.rows.reduce(
+      (sum, row) => sum + Number(row.estimated_loss_value || 0),
+      0
+    );
+
+    res.json({
+      tenant,
+      total_estimated_loss: totalLoss,
+      candidates: result.rows
+    });
+
+  } catch (err) {
+    console.error("leak-candidates error:", err);
+    res.status(500).json({ error: "internal server error" });
+  }
+});
+
+// ---------------------------
 // GET /meters/risk-map
 // Groups Meter Health by a field.
 // Supported groupBy:
