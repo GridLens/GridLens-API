@@ -1,0 +1,93 @@
+// Leaks & Loss
+app.get("/api/leak-candidates", (req, res) => {
+  const tenant = req.query.tenant || "HSUD";
+
+  res.json({
+    tenant,
+    total_estimated_loss: 24850.35,
+    candidates: [
+      {
+        meter_id: "20054321",
+        address: "45 Oak St",
+        zone: "Zone 3",
+        estimated_loss_volume: 123.4,
+        estimated_loss_value: 520.75,
+        days_continuous_flow: 9,
+        risk_score: 0.91,
+        status: "New"
+      },
+      {
+        meter_id: "20098765",
+        address: "99 Pine Ave",
+        zone: "Zone 2",
+        estimated_loss_volume: 80.2,
+        estimated_loss_value: 310.10,
+        days_continuous_flow: 6,
+        risk_score: 0.84,
+        status: "Investigating"
+      }
+    ]
+  });
+});
+
+// Events & Outages
+app.get("/api/events", (req, res) => {
+  const tenant = req.query.tenant || "HSUD";
+
+  res.json({
+    tenant,
+    events: [
+      {
+        event_id: 1,
+        meter_id: "10012345",
+        event_type: "OUTAGE",
+        raw_code: "EV201",
+        event_timestamp: "2025-11-30T01:42:00Z",
+        zone: "Zone 1",
+        details: "Voltage below threshold for > 5 min"
+      },
+      {
+        event_id: 2,
+        meter_id: "10056789",
+        event_type: "TAMPER",
+        raw_code: "EV305",
+        event_timestamp: "2025-11-30T02:15:00Z",
+        zone: "Zone 3",
+        details: "Meter cover removed"
+      }
+    ]
+  });
+});
+
+// FieldOps Queue
+app.get("/api/work-queue", (req, res) => {
+  const tenant = req.query.tenant || "HSUD";
+
+  res.json({
+    tenant,
+    items: [
+      {
+        id: 987,
+        source_type: "Leak",
+        meter_id: "20054321",
+        address: "45 Oak St",
+        zone: "Zone 3",
+        priority: "High",
+        status: "New",
+        created_at: "2025-11-29T14:05:00Z",
+        last_update: "2025-11-29T14:05:00Z"
+      },
+      {
+        id: 988,
+        source_type: "Outage pattern",
+        meter_id: "10012345",
+        address: "123 Main St",
+        zone: "Zone 1",
+        priority: "Medium",
+        status: "Investigating",
+        created_at: "2025-11-28T10:22:00Z",
+        last_update: "2025-11-29T09:10:00Z"
+      }
+    ]
+  });
+});

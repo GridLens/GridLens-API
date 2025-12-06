@@ -1004,98 +1004,108 @@ app.get("/api/meter-health/summary", (req, res) => {
 
 // ---------------------------
 // GET /api/leak-candidates
-// Leak candidates from PostgreSQL view
+// Leaks & Loss (MOCK DATA)
 // Query: ?tenant=HSUD (default)
 // ---------------------------
-app.get("/api/leak-candidates", async (req, res) => {
+app.get("/api/leak-candidates", (req, res) => {
   const tenant = req.query.tenant || "HSUD";
 
-  try {
-    const result = await queryDb(`
-      SELECT tenant_id, meter_id, address, zone,
-             estimated_loss_volume,
-             estimated_loss_value,
-             days_continuous_flow,
-             risk_score,
-             status
-      FROM vw_leak_candidates
-      WHERE tenant_id = $1
-      ORDER BY risk_score DESC
-      LIMIT 200
-    `, [tenant]);
-
-    const totalLoss = result.rows.reduce(
-      (sum, row) => sum + Number(row.estimated_loss_value || 0),
-      0
-    );
-
-    res.json({
-      tenant,
-      total_estimated_loss: totalLoss,
-      candidates: result.rows
-    });
-
-  } catch (err) {
-    console.error("leak-candidates error:", err);
-    res.status(500).json({ error: "internal server error" });
-  }
+  res.json({
+    tenant,
+    total_estimated_loss: 24850.35,
+    candidates: [
+      {
+        meter_id: "20054321",
+        address: "45 Oak St",
+        zone: "Zone 3",
+        estimated_loss_volume: 123.4,
+        estimated_loss_value: 520.75,
+        days_continuous_flow: 9,
+        risk_score: 0.91,
+        status: "New"
+      },
+      {
+        meter_id: "20098765",
+        address: "99 Pine Ave",
+        zone: "Zone 2",
+        estimated_loss_volume: 80.2,
+        estimated_loss_value: 310.10,
+        days_continuous_flow: 6,
+        risk_score: 0.84,
+        status: "Investigating"
+      }
+    ]
+  });
 });
 
 // ---------------------------
 // GET /api/events
-// Recent events from PostgreSQL view
+// Events & Outages (MOCK DATA)
 // Query: ?tenant=HSUD (default)
 // ---------------------------
-app.get("/api/events", async (req, res) => {
+app.get("/api/events", (req, res) => {
   const tenant = req.query.tenant || "HSUD";
 
-  try {
-    const events = await queryDb(`
-      SELECT event_id, meter_id, event_type, raw_code,
-             event_timestamp, zone, details
-      FROM vw_recent_events
-      WHERE tenant_id = $1
-      ORDER BY event_timestamp DESC
-      LIMIT 200
-    `, [tenant]);
-
-    res.json({
-      tenant,
-      events: events.rows
-    });
-
-  } catch (err) {
-    console.error("events error:", err);
-    res.status(500).json({ error: "internal server error" });
-  }
+  res.json({
+    tenant,
+    events: [
+      {
+        event_id: 1,
+        meter_id: "10012345",
+        event_type: "OUTAGE",
+        raw_code: "EV201",
+        event_timestamp: "2025-11-30T01:42:00Z",
+        zone: "Zone 1",
+        details: "Voltage below threshold for > 5 min"
+      },
+      {
+        event_id: 2,
+        meter_id: "10056789",
+        event_type: "TAMPER",
+        raw_code: "EV305",
+        event_timestamp: "2025-11-30T02:15:00Z",
+        zone: "Zone 3",
+        details: "Meter cover removed"
+      }
+    ]
+  });
 });
 
 // ---------------------------
 // GET /api/work-queue
-// Work queue items from PostgreSQL
+// FieldOps Queue (MOCK DATA)
 // Query: ?tenant=HSUD (default)
 // ---------------------------
-app.get("/api/work-queue", async (req, res) => {
+app.get("/api/work-queue", (req, res) => {
   const tenant = req.query.tenant || "HSUD";
 
-  try {
-    const q = await queryDb(`
-      SELECT id, source_type, meter_id, address, zone,
-             priority, status, created_at, last_update
-      FROM work_queue
-      WHERE tenant_id = $1
-      ORDER BY priority DESC, created_at DESC
-    `, [tenant]);
-
-    res.json({
-      tenant,
-      items: q.rows
-    });
-
-  } catch (err) {
-    console.error("work-queue error:", err);
-    res.status(500).json({ error: "internal server error" });
-  }
+  res.json({
+    tenant,
+    items: [
+      {
+        id: 987,
+        source_type: "Leak",
+        meter_id: "20054321",
+        address: "45 Oak St",
+        zone: "Zone 3",
+        priority: "High",
+        status: "New",
+        created_at: "2025-11-29T14:05:00Z",
+        last_update: "2025-11-29T14:05:00Z"
+      },
+      {
+        id: 988,
+        source_type: "Outage pattern",
+        meter_id: "10012345",
+        address: "123 Main St",
+        zone: "Zone 1",
+        priority: "Medium",
+        status: "Investigating",
+        created_at: "2025-11-28T10:22:00Z",
+        last_update: "2025-11-29T09:10:00Z"
+      }
+    ]
+  });
 });
 
 // ---------------------------
