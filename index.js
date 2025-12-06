@@ -975,6 +975,64 @@ app.get("/meter-health/score/:meterId", (req, res) => {
 });
 
 // ---------------------------
+// GET /api/meter-health/summary
+// Meter health summary from PostgreSQL view
+// Query: ?tenant=HSUD (default)
+// ---------------------------
+app.get("/api/meter-health/summary", async (req, res) => {
+  const tenant = req.query.tenant || "HSUD";
+
+  try {
+    const byZone = await queryDb(`
+      SELECT tenant_id, zone, meters_total, meters_healthy, meters_problem, percent_healthy
+      FROM vw_meter_health_summary
+      WHERE tenant_id = $1
+      ORDER BY zone
+    `, [tenant]);
+
+    const totals = await queryDb(`
+      SELECT
+        SUM(meters_total) AS meters_total,
+        SUM(meters_healthy) AS meters_healthy,
+        SUM(meters_problem) AS meters_problem
+      FROM vw_meter_health_summary
+      WHERE tenant_id = $1
+    `, [tenant]);
+
+    const t = totals.rows[0] || {};
+    const meters_total = Number(t.meters_total || 0);
+    const meters_healthy = Number(t.meters_healthy || 0);
+    const meters_problem = Number(t.meters_problem || 0);
+    const percent_healthy = meters_total
+      ? (meters_healthy / meters_total) * 100
+      : 0;
+
+    const sample = await queryDb(`
+      SELECT meter_id, address, zone, status
+      FROM meters
+      WHERE tenant_id = $1 AND status <> 'HEALTHY'
+      LIMIT 20
+    `, [tenant]);
+
+    res.json({
+      tenant,
+      totals: {
+        meters_total,
+        meters_healthy,
+        meters_problem,
+        percent_healthy
+      },
+      by_zone: byZone.rows,
+      problem_meters_sample: sample.rows
+    });
+
+  } catch (err) {
+    console.error("meter-health error:", err);
+    res.status(500).json({ error: "internal server error" });
+  }
+});
+
+// ---------------------------
 // GET /meters/risk-map
 // Groups Meter Health by a field.
 // Supported groupBy:
@@ -1368,6 +1426,11 @@ app.get("/dashboard/overview", (req, res) => {
 // Helper Functions
 // -----------------------------
 async function insertRow(sql, params) {
+  const { pool } = await import('./db.js');
+  return pool.query(sql, params);
+}
+
+async function queryDb(sql, params) {
   const { pool } = await import('./db.js');
   return pool.query(sql, params);
 }
