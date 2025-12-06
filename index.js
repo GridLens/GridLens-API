@@ -1129,6 +1129,45 @@ app.get("/api/work-queue", async (req, res) => {
 });
 
 // ---------------------------
+// GET /api/meters/:id
+// Single meter detail from PostgreSQL
+// Query: ?tenant=HSUD (default)
+// ---------------------------
+app.get("/api/meters/:id", async (req, res) => {
+  const tenant = req.query.tenant || "HSUD";
+  const meterId = req.params.id;
+
+  try {
+    const meterResult = await queryDb(`
+      SELECT tenant_id, meter_id, address, zone, service_type, status
+      FROM meters
+      WHERE tenant_id = $1 AND meter_id = $2
+    `, [tenant, meterId]);
+
+    if (meterResult.rows.length === 0) {
+      return res.status(404).json({ error: "Meter not found" });
+    }
+
+    const eventsResult = await queryDb(`
+      SELECT event_type, event_timestamp, raw_code, details
+      FROM meter_events
+      WHERE tenant_id = $1 AND meter_id = $2
+      ORDER BY event_timestamp DESC
+      LIMIT 50
+    `, [tenant, meterId]);
+
+    res.json({
+      ...meterResult.rows[0],
+      last_events: eventsResult.rows
+    });
+
+  } catch (err) {
+    console.error("meter-detail error:", err);
+    res.status(500).json({ error: "internal server error" });
+  }
+});
+
+// ---------------------------
 // GET /meters/risk-map
 // Groups Meter Health by a field.
 // Supported groupBy:
