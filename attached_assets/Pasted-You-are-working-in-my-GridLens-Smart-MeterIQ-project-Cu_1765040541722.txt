@@ -1,0 +1,174 @@
+You are working in my GridLens / Smart MeterIQ project.
+
+### 🔧 Current setup (important context)
+
+- Azure Postgres database: **gridlens_db**.
+- In schema **public**, I already have these tables (with v1 schema you must inspect, not reinvent):
+  - feeders
+  - zones
+  - meters
+  - kpi_electric_loss_daily
+  - kpi_water_loss_daily
+  - kpi_fieldops_daily
+  - kpi_overview_daily
+  - work_orders
+  - meter_anomalies
+
+  NOTE: Use pgAdmin / database introspection from existing migrations to see the actual column names and types. DO NOT drop or recreate these tables. Work *with* the schema that is already there.
+
+- Frontend: Vite + React app in the **smart-meteriq-ui** folder.
+  - There is already:
+    - `SystemHealthPage.jsx`
+    - `EnergyLossHealthPage.jsx` (a first draft)
+    - A main layout and routing setup (e.g., `MainLayout.jsx`, `App.jsx`).
+  - Tailwind or similar utility classes are already used for styling.
+
+- Backend: Node + Express API that already talks to Postgres via `pg` (check how `pilot_signups` or `contact` routes are implemented).
+  - There is an existing `Pool` or `Client` object configured for Azure Postgres.
+  - There is already an `API_URL` constant used on the frontend (for the SystemHealth page). Re-use that pattern.
+
+Your job: **Implement a complete, end-to-end “Energy Loss & Health (Electric)” flow** that maps onto the KPI spec below, using **views + API endpoints + React page wiring**.
+
+---
+
+## 1) Postgres: create views and (optionally) seed demo rows
+
+1. Inspect the schemas of these tables in `gridlens_db.public`:
+
+   - `kpi_electric_loss_daily`
+   - `feeders`
+   - `meters`
+   - `meter_anomalies`
+   - `work_orders`
+   - `kpi_fieldops_daily`
+
+   Figure out which columns you already have that correspond to:
+
+   - Time window (date or timestamp)
+   - Tenant or utility identifier (e.g., `tenant_id`)
+   - System loss %, non-technical loss %, etc.
+   - Feeder or zone identifiers
+   - Anomaly / meter fields
+   - Work order status, created_at, etc.
+
+2. Based on that inspection, create **non-destructive Postgres views** (in the `public` schema) that support the Energy Loss & Health (Electric) page.
+
+   Implement the following views (names fixed, definitions can adapt to actual columns):
+
+   - `v_kpi_energy_loss_overview`
+     - One row per (tenant, day) or latest day.
+     - Columns (or closest equivalent you can derive from existing schema):
+       - `as_of_date` (DATE or TIMESTAMPTZ)
+       - `tenant_id`
+       - `system_loss_pct`
+       - `non_technical_loss_dollars_month`
+       - `meters_in_good_health_pct`
+       - `saidi_minutes`
+       - `saifi_events_per_cust`
+       - `loss_hotspot_feeders_count`
+       - `revenue_recovered_30d_dollars`
+
+     Logic:
+     - Pull primary KPI values from `kpi_electric_loss_daily`.
+     - If some fields don’t exist, derive sensible stand-ins from related tables or set them to 0 / NULL but keep the columns in the view so the API/React layer can rely on a stable shape.
+
+   - `v_kpi_energy_loss_feeders`
+     - One row per feeder (for the current or latest period).
+     - Columns:
+       - `feeder_id`
+       - `feeder_name`
+       - `substation_name` (or nearest equivalent)
+       - `system_loss_pct`
+       - `non_technical_loss_pct`
+       - `non_technical_loss_kwh`
+       - `non_technical_loss_dollars_month`
+       - `active_work_orders_count`
+     - Join `feeders` with KPI tables and `work_orders` (if there is a feeder reference) to compute `active_work_orders_count`. If work orders aren’t feeder-scoped in the schema, aggregate using the best available linkage (e.g., via meters).
+
+   - `v_kpi_energy_loss_suspicious_meters`
+     - One row per meter anomaly that represents a **suspicious loss / theft** pattern.
+     - Columns:
+       - `anomaly_id`
+       - `meter_id`
+       - `service_location` or address (if available via `meters`)
+       - `account_name` or customer name if you have it
+       - `pattern` (e.g., anomaly_type text)
+       - `estimated_loss_dollars_month`
+       - `days_in_state`
+       - `current_status` (unassigned, in_work_order, resolved, etc.)
+     - Use `meter_anomalies` as the base, join with `meters` for location/account fields where possible.
+     - Filter anomaly/`pattern` to a subset that indicates theft / bypass / measurement error (based on your anomaly_type enum or text).
+
+   - `v_kpi_energy_loss_fieldops`
+     - Aggregate **loss-related work orders**.
+     - Columns:
+       - `as_of_date`
+       - `open_loss_work_orders`
+       - `avg_open_age_days`
+       - `resolved_last_30d`
+       - `truck_rolls_avoided_est`
+     - Use `work_orders` and any columns you have for created_at, closed_at, type, status, truck_roll flags, etc.
+     - If a specific `loss_related` flag doesn’t exist, approximate by work_type, category, or notes text (e.g., contains “theft”, “meter error”, “loss”, “tamper”).
+
+3. If all of these KPI tables are still empty and you’re in a dev environment, create a **separate SQL script** (e.g., `sql/dev_seed_energy_loss.sql`) that inserts a handful of demo rows into:
+
+   - `kpi_electric_loss_daily`
+   - `kpi_fieldops_daily`
+   - `meter_anomalies`
+   - `work_orders`
+   - `feeders`
+   - `meters`
+
+   so that the views above return meaningful sample data for a single demo tenant (e.g., `'hsud-demo-tenant'`). Use realistic values like:
+
+   - system_loss_pct around 5–10%
+   - non_technical_loss_dollars_month in the tens of thousands
+   - 3–5 feeders with varying loss levels
+   - a handful of suspicious meters with estimated losses and “days_in_state”
+   - a few open and closed work orders.
+
+   The seed script must be idempotent-ish (e.g., check for existing rows or use a simple DELETE + INSERT pattern clearly marked as “dev only”).
+
+---
+
+## 2) Backend: Express API routes for Energy Loss & Health
+
+In the Node/Express backend where you already handle DB connections:
+
+1. Create a new router module, e.g. `routes/kpiEnergyLossRoutes.js` (or extend an existing KPI routes file if you already have one).
+
+2. In that file:
+
+   - Import the existing Postgres `Pool` / `db` helper so you can run `await pool.query(...)`.
+
+   - Define these endpoints (HTTP GET):
+
+     - `GET /api/kpi/energy-loss/overview`
+       - Query: `SELECT * FROM v_kpi_energy_loss_overview ORDER BY as_of_date DESC LIMIT 1;`
+       - Return JSON with a single object or `{ kpi: {...} }`.
+
+     - `GET /api/kpi/energy-loss/feeders`
+       - Query: `SELECT * FROM v_kpi_energy_loss_feeders ORDER BY non_technical_loss_dollars_month DESC;`
+       - Return JSON array of feeder rows.
+
+     - `GET /api/kpi/energy-loss/suspicious-meters`
+       - Query: `SELECT * FROM v_kpi_energy_loss_suspicious_meters ORDER BY estimated_loss_dollars_month DESC, days_in_state DESC;`
+       - Return JSON array.
+
+     - `GET /api/kpi/energy-loss/fieldops`
+       - Query: `SELECT * FROM v_kpi_energy_loss_fieldops ORDER BY as_of_date DESC LIMIT 1;`
+       - Return JSON object or `{ kpi: {...} }`.
+
+   - For each route, include simple error handling:
+     - `try/catch`
+     - On error, log it server-side and return `res.status(500).json({ error: 'message', details: ... })`.
+
+   - If your schema is multi-tenant with a `tenant_id` column:
+     - For now, hard-code a **demo tenant ID**, e.g. `'hsud-demo-tenant'`.
+     - Filter each query with `WHERE tenant_id = $1` + `pool.query(sql, ['hsud-demo-tenant'])`.
+
+3. Register this router in your main Express app (e.g., `index.js` or `app.js`):
+
+   ```js
+   const kpiEnergyLossRoutes = require('./routes/kpiEnergyLossRoutes');
+   app.use('/api/kpi/energy-loss', kpiEnergyLossRoutes);
