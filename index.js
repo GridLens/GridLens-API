@@ -976,60 +976,30 @@ app.get("/meter-health/score/:meterId", (req, res) => {
 
 // ---------------------------
 // GET /api/meter-health/summary
-// Meter health summary from PostgreSQL view
+// Meter health summary (MOCK DATA)
 // Query: ?tenant=HSUD (default)
 // ---------------------------
-app.get("/api/meter-health/summary", async (req, res) => {
+app.get("/api/meter-health/summary", (req, res) => {
   const tenant = req.query.tenant || "HSUD";
 
-  try {
-    const byZone = await queryDb(`
-      SELECT tenant_id, zone, meters_total, meters_healthy, meters_problem, percent_healthy
-      FROM vw_meter_health_summary
-      WHERE tenant_id = $1
-      ORDER BY zone
-    `, [tenant]);
-
-    const totals = await queryDb(`
-      SELECT
-        SUM(meters_total) AS meters_total,
-        SUM(meters_healthy) AS meters_healthy,
-        SUM(meters_problem) AS meters_problem
-      FROM vw_meter_health_summary
-      WHERE tenant_id = $1
-    `, [tenant]);
-
-    const t = totals.rows[0] || {};
-    const meters_total = Number(t.meters_total || 0);
-    const meters_healthy = Number(t.meters_healthy || 0);
-    const meters_problem = Number(t.meters_problem || 0);
-    const percent_healthy = meters_total
-      ? (meters_healthy / meters_total) * 100
-      : 0;
-
-    const sample = await queryDb(`
-      SELECT meter_id, address, zone, status
-      FROM meters
-      WHERE tenant_id = $1 AND status <> 'HEALTHY'
-      LIMIT 20
-    `, [tenant]);
-
-    res.json({
-      tenant,
-      totals: {
-        meters_total,
-        meters_healthy,
-        meters_problem,
-        percent_healthy
-      },
-      by_zone: byZone.rows,
-      problem_meters_sample: sample.rows
-    });
-
-  } catch (err) {
-    console.error("meter-health error:", err);
-    res.status(500).json({ error: "internal server error" });
-  }
+  res.json({
+    tenant,
+    totals: {
+      meters_total: 12000,
+      meters_healthy: 11250,
+      meters_problem: 750,
+      percent_healthy: 93.75
+    },
+    by_zone: [
+      { zone: "Zone 1", meters_total: 3000, meters_healthy: 2920, meters_problem: 80, percent_healthy: 97.33 },
+      { zone: "Zone 2", meters_total: 4500, meters_healthy: 4200, meters_problem: 300, percent_healthy: 93.33 },
+      { zone: "Zone 3", meters_total: 4500, meters_healthy: 4130, meters_problem: 370, percent_healthy: 91.78 }
+    ],
+    problem_meters_sample: [
+      { meter_id: "10012345", address: "123 Main St", zone: "Zone 2", status: "UNREACHABLE" },
+      { meter_id: "10056789", address: "456 Oak St", zone: "Zone 3", status: "LEAK_SUSPECT" }
+    ]
+  });
 });
 
 // ---------------------------
