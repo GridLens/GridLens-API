@@ -1101,6 +1101,34 @@ app.get("/api/events", async (req, res) => {
 });
 
 // ---------------------------
+// GET /api/work-queue
+// Work queue items from PostgreSQL
+// Query: ?tenant=HSUD (default)
+// ---------------------------
+app.get("/api/work-queue", async (req, res) => {
+  const tenant = req.query.tenant || "HSUD";
+
+  try {
+    const q = await queryDb(`
+      SELECT id, source_type, meter_id, address, zone,
+             priority, status, created_at, last_update
+      FROM work_queue
+      WHERE tenant_id = $1
+      ORDER BY priority DESC, created_at DESC
+    `, [tenant]);
+
+    res.json({
+      tenant,
+      items: q.rows
+    });
+
+  } catch (err) {
+    console.error("work-queue error:", err);
+    res.status(500).json({ error: "internal server error" });
+  }
+});
+
+// ---------------------------
 // GET /meters/risk-map
 // Groups Meter Health by a field.
 // Supported groupBy:
