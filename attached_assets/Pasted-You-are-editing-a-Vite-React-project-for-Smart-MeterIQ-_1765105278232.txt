@@ -1,0 +1,101 @@
+You are editing a Vite + React project for "Smart MeterIQ UI".
+
+Goal:
+Fix all "Failed to fetch" errors on the Energy Loss & Health page by pointing the frontend to the correct backend base URL and using it consistently.
+
+Backend API base URL (DO NOT CHANGE):
+https://73f0d221-7b02-428e-a6ec-1d9bebd857bb-00-2dbtzbmvqtyw.kirk.replit.dev
+
+Do the following steps EXACTLY:
+
+1) Update src/apiConfig.js
+
+- Open the file:
+  src/apiConfig.js
+
+- Replace its entire contents with EXACTLY this:
+
+  ```js
+  // src/apiConfig.js
+  // Single source of truth for the backend API URL used by Smart MeterIQ UI.
+
+  export const API_BASE =
+    'https://73f0d221-7b02-428e-a6ec-1d9bebd857bb-00-2dbtzbmvqtyw.kirk.replit.dev';
+Save the file.
+
+Fix imports and fetch calls in EnergyLossHealthPage.jsx
+
+Open the file:
+src/pages/EnergyLossHealthPage.jsx
+
+At the top of the file, ensure there is ONLY ONE React import and ONE apiConfig import, exactly like this:
+
+js
+Copy code
+import React, { useEffect, useState } from 'react';
+import { API_BASE } from '../apiConfig';
+If there is a duplicate import React ... line, DELETE the duplicate so only the snippet above remains.
+
+Now, in this same file, find ALL fetch( calls and make sure they use API_BASE and the correct paths.
+
+Update them to match EXACTLY the following four patterns (create them if needed, or edit existing ones):
+
+js
+Copy code
+// Overview KPIs
+fetch(`${API_BASE}/api/kpi/energy-loss/overview`)
+
+// Feeders / zones loss view
+fetch(`${API_BASE}/api/kpi/energy-loss/feeders`)
+
+// Suspicious meters
+fetch(`${API_BASE}/api/kpi/energy-loss/suspicious-meters`)
+
+// FieldOps summary
+fetch(`${API_BASE}/api/kpi/energy-loss/fieldops`)
+VERY IMPORTANT:
+
+Remove any hard-coded URLs like:
+
+http://localhost:3001/...
+
+http://127.0.0.1:3001/...
+
+any other base URL.
+
+After you finish, the ONLY base used in this file for these four endpoints must be ${API_BASE} as shown above.
+
+Do NOT change any other logic, JSX, or component names in this file. Only fix:
+
+duplicate imports,
+
+and the fetch URLs to use API_BASE.
+
+(Optional note for the user – do NOT run commands yourself)
+
+When you are done editing files, tell me:
+"Edits applied. You can now run: npm run dev from the smart-meteriq-ui folder."
+Do NOT run the commands yourself; just confirm that the edits were made cleanly and there are no syntax errors left in EnergyLossHealthPage.jsx.
+
+yaml
+Copy code
+
+---
+
+After the AI does that and confirms:
+
+1. In PowerShell:
+
+```powershell
+cd 'C:\Users\cdean\OneDrive\Desktop\Smart MeterIQ\smart-meteriq-ui'
+npm run dev
+Open the Energy Loss & Health page and see if the data loads.
+
+If it still errors after this script, copy the new error message from DevTools → Network (status code + message) and send it to me.
+
+
+
+
+
+
+
