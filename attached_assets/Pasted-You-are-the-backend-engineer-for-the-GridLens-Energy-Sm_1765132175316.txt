@@ -1,0 +1,177 @@
+You are the backend engineer for the GridLens Energy / Smart MeterIQ project.
+
+🎯 GOAL
+Make sure this Replit backend exposes stable JSON APIs for the **Energy Loss & Health (Electric)** page so my React frontend can call them without 404s or errors.
+
+This Replit is **backend ONLY** (Node + Express + Postgres). The React UI lives somewhere else. Do NOT try to add React here. Focus 100% on APIs.
+
+CURRENT CONTEXT
+- Stack: Node.js + Express (see index.js) and Postgres (db.js or similar).
+- This Replit is publicly reachable at a URL like:
+  https://73f0d221-7b02-428e-a6ec-1d9bebd857bb-00-2dbtzbmvqutyw.kirk.replit.dev
+- My React frontend calls these endpoints:
+
+  1) GET /api/kpi/energy-loss/overview
+  2) GET /api/kpi/energy-loss/feeders
+  3) GET /api/kpi/energy-loss/suspicious-meters
+  4) GET /api/kpi/energy-loss/fieldops
+
+These must all:
+- Exist,
+- Return HTTP 200,
+- Return valid JSON shapes (not HTML / not 404),
+- Have CORS enabled so the browser can call them.
+
+📌 BUSINESS LOGIC SUMMARY (what data should roughly look like)
+
+You don’t need perfect math yet; just return realistic JSON fields so the frontend can render:
+
+1) /api/kpi/energy-loss/overview
+Return a single object with high-level electric KPIs, for example:
+
+{
+  "systemLossPct": 7.4,
+  "nonTechnicalLossDollarsMonth": 18450,
+  "metersInGoodHealthPct": 91.2,
+  "saidiMinutes": 62,
+  "saifiInterruptions": 1.3,
+  "lossHotspotFeedersCount": 3,
+  "revenueRecoveredLast30Days": 12650,
+  "amiReadSuccessPct": 97.5
+}
+
+2) /api/kpi/energy-loss/feeders
+Return an array of feeders with loss metrics, e.g.:
+
+[
+  {
+    "feederId": "F-101",
+    "feederName": "North Holly 1",
+    "lossPct": 14.2,
+    "energyPurchasedKwh": 125000,
+    "kwhLostMonthly": 17750,
+    "valueLostMonthly": 3550,
+    "activeWorkOrders": 2,
+    "loadingPct": 88.3,
+    "customers": 742
+  },
+  ...
+]
+
+3) /api/kpi/energy-loss/suspicious-meters
+Return an array of “suspicious” meters (theft / reverse flow / stopped / constant low usage):
+
+[
+  {
+    "meterId": "E-445021",
+    "accountId": "ACC-99318",
+    "location": "123 Oak St",
+    "pattern": "reverse_flow",
+    "estimatedLossPerMonth": 190.75,
+    "daysInState": 17,
+    "status": "Unassigned",
+    "feederName": "North Holly 1"
+  },
+  ...
+]
+
+4) /api/kpi/energy-loss/fieldops
+Return high-level FieldOps KPIs for loss-related work:
+
+{
+  "openWorkOrders": 9,
+  "resolvedLast30Days": 21,
+  "avgAgeOpenDays": 6.4,
+  "truckRollsAvoidedEstimate": 8,
+  "lossRelatedWorkOrders": [
+    {
+      "id": "WO-1001",
+      "type": "suspected_theft",
+      "location": "456 Pine St",
+      "status": "In Progress",
+      "ageDays": 4,
+      "estimatedRecoveredDollars": 320
+    },
+    ...
+  ]
+}
+
+For now, it is OK if these come from:
+- Static mock JSON in code, OR
+- Real queries if db.js and tables are already wired.
+
+✅ REQUIREMENTS
+
+1. INSPECT PROJECT
+- Open index.js (or main server file).
+- Identify where Express is created (e.g. `const app = express()`).
+- Identify any existing routes under `/api` or `/api/kpi`.
+- Identify db helper (db.js or similar) and how it connects to Postgres (usually via process.env.DATABASE_URL or config).
+
+2. ADD / FIX ROUTES
+Implement these four routes under a single router, for example:
+
+- Base path: /api/kpi/energy-loss
+  - GET /overview
+  - GET /feeders
+  - GET /suspicious-meters
+  - GET /fieldops
+
+You may:
+- Use `express.Router()` and mount it, OR
+- Inline them directly in index.js.
+
+Each route MUST:
+- Use `res.status(200).json(...)`
+- Not throw unhandled errors
+- Return the JSON shapes described above.
+
+If you see existing placeholder/mocked routes, replace them with clean implementations. Avoid duplicates or conflicting routes.
+
+3. CORS & JSON MIDDLEWARE
+- Ensure `app.use(cors())` is called for all routes (import cors from 'cors' or require('cors')).
+- Ensure `app.use(express.json())` is enabled.
+- If Replit uses a specific port, respect `process.env.PORT || 5000` and `app.listen(PORT, ...)`.
+
+4. OPTIONAL DB INTEGRATION (SAFE)
+If there is a **working** Postgres helper (db.js) and tables with realistic names, you can:
+- Add SELECT queries to populate the JSON instead of static mocks.
+- But: if there is any doubt, stick with in-memory mock data so we don’t crash on missing tables.
+
+Important:
+- DO NOT hard-code credentials.
+- Use environment variables only.
+- If a query fails, catch errors and respond with `res.status(500).json({ error: '...' })`.
+
+5. HEALTHCHECK & LOGGING
+- Add a simple health route: GET /api/health → `{ status: 'ok' }`.
+- Log that the server is running with a clear message, e.g.:
+  `console.log("API listening on port", PORT);`
+
+6. VERIFY
+Simulate or actually run:
+
+- GET /api/kpi/energy-loss/overview
+- GET /api/kpi/energy-loss/feeders
+- GET /api/kpi/energy-loss/suspicious-meters
+- GET /api/kpi/energy-loss/fieldops
+
+Confirm:
+- HTTP 200,
+- Valid JSON,
+- No 404s,
+- No HTML error pages.
+
+If there is any existing error like 404 or “cannot GET /api/kpi/energy-loss/overview”, FIX it so the routes exist and respond as defined.
+
+📌 DELIVERABLE
+When you are done, I expect:
+- A clean index.js (or equivalent) with:
+  - Express app,
+  - CORS + JSON middleware,
+  - `/api/kpi/energy-loss/*` routes implemented,
+  - `/api/health` route.
+
+- All 4 KPI routes return valid JSON as described (mocked or DB-backed).
+
+DO NOT touch any front-end code in this Replit. Assume the frontend is already pointing to this base URL.

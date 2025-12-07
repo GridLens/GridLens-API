@@ -473,6 +473,11 @@ app.get("/health", (req, res) => {
   res.json({ ok: true, api: "up", db: "mvp-mock" });
 });
 
+app.get("/api/health", (req, res) => {
+  console.log("[API] GET /api/health");
+  res.status(200).json({ status: "ok" });
+});
+
 // ---------------------------
 // GET /api/debug/test
 // Simple debug endpoint
@@ -487,11 +492,15 @@ app.get("/api/debug/test", (req, res) => {
 // ---------------------------
 app.get("/api/kpi/energy-loss/overview", (req, res) => {
   console.log("[API] GET /api/kpi/energy-loss/overview");
-  res.json({
-    totalLossKWh: 4520,
-    lossPercent: 6.25,
-    topLossFeeders: ["FDR-101", "FDR-202", "FDR-303"],
-    lastUpdated: new Date().toISOString()
+  res.status(200).json({
+    systemLossPct: 7.4,
+    nonTechnicalLossDollarsMonth: 18450,
+    metersInGoodHealthPct: 91.2,
+    saidiMinutes: 62,
+    saifiInterruptions: 1.3,
+    lossHotspotFeedersCount: 3,
+    revenueRecoveredLast30Days: 12650,
+    amiReadSuccessPct: 97.5
   });
 });
 
@@ -501,10 +510,40 @@ app.get("/api/kpi/energy-loss/overview", (req, res) => {
 // ---------------------------
 app.get("/api/kpi/energy-loss/feeders", (req, res) => {
   console.log("[API] GET /api/kpi/energy-loss/feeders");
-  res.json([
-    { feeder: "FDR-101", lossPercent: 4.25 },
-    { feeder: "FDR-202", lossPercent: 6.11 },
-    { feeder: "FDR-303", lossPercent: 3.82 }
+  res.status(200).json([
+    {
+      feederId: "F-101",
+      feederName: "North Holly 1",
+      lossPct: 14.2,
+      energyPurchasedKwh: 125000,
+      kwhLostMonthly: 17750,
+      valueLostMonthly: 3550,
+      activeWorkOrders: 2,
+      loadingPct: 88.3,
+      customers: 742
+    },
+    {
+      feederId: "F-102",
+      feederName: "South Main 2",
+      lossPct: 8.7,
+      energyPurchasedKwh: 98000,
+      kwhLostMonthly: 8526,
+      valueLostMonthly: 1705,
+      activeWorkOrders: 1,
+      loadingPct: 72.5,
+      customers: 589
+    },
+    {
+      feederId: "F-103",
+      feederName: "East Industrial 3",
+      lossPct: 5.2,
+      energyPurchasedKwh: 210000,
+      kwhLostMonthly: 10920,
+      valueLostMonthly: 2184,
+      activeWorkOrders: 0,
+      loadingPct: 65.1,
+      customers: 312
+    }
   ]);
 });
 
@@ -514,10 +553,37 @@ app.get("/api/kpi/energy-loss/feeders", (req, res) => {
 // ---------------------------
 app.get("/api/kpi/energy-loss/suspicious-meters", (req, res) => {
   console.log("[API] GET /api/kpi/energy-loss/suspicious-meters");
-  res.json([
-    { meterId: "20054321", issue: "Reverse energy flow detected" },
-    { meterId: "20098765", issue: "Zero usage anomaly" },
-    { meterId: "20012345", issue: "Voltage mismatch" }
+  res.status(200).json([
+    {
+      meterId: "E-445021",
+      accountId: "ACC-99318",
+      location: "123 Oak St",
+      pattern: "reverse_flow",
+      estimatedLossPerMonth: 190.75,
+      daysInState: 17,
+      status: "Unassigned",
+      feederName: "North Holly 1"
+    },
+    {
+      meterId: "E-551032",
+      accountId: "ACC-88201",
+      location: "456 Pine St",
+      pattern: "stopped_meter",
+      estimatedLossPerMonth: 320.50,
+      daysInState: 9,
+      status: "In Progress",
+      feederName: "South Main 2"
+    },
+    {
+      meterId: "E-662148",
+      accountId: "ACC-77412",
+      location: "789 Elm Ave",
+      pattern: "constant_low_usage",
+      estimatedLossPerMonth: 85.25,
+      daysInState: 31,
+      status: "Unassigned",
+      feederName: "East Industrial 3"
+    }
   ]);
 });
 
@@ -527,11 +593,38 @@ app.get("/api/kpi/energy-loss/suspicious-meters", (req, res) => {
 // ---------------------------
 app.get("/api/kpi/energy-loss/fieldops", (req, res) => {
   console.log("[API] GET /api/kpi/energy-loss/fieldops");
-  res.json([
-    { id: 1001, meterId: "10012345", task: "Replace meter" },
-    { id: 1002, meterId: "10056789", task: "Inspect location" },
-    { id: 1003, meterId: "10098765", task: "Verify tamper seal" }
-  ]);
+  res.status(200).json({
+    openWorkOrders: 9,
+    resolvedLast30Days: 21,
+    avgAgeOpenDays: 6.4,
+    truckRollsAvoidedEstimate: 8,
+    lossRelatedWorkOrders: [
+      {
+        id: "WO-1001",
+        type: "suspected_theft",
+        location: "456 Pine St",
+        status: "In Progress",
+        ageDays: 4,
+        estimatedRecoveredDollars: 320
+      },
+      {
+        id: "WO-1002",
+        type: "stopped_meter",
+        location: "123 Oak St",
+        status: "Open",
+        ageDays: 8,
+        estimatedRecoveredDollars: 190
+      },
+      {
+        id: "WO-1003",
+        type: "reverse_flow",
+        location: "789 Elm Ave",
+        status: "Scheduled",
+        ageDays: 2,
+        estimatedRecoveredDollars: 85
+      }
+    ]
+  });
 });
 
 // ---------------------------

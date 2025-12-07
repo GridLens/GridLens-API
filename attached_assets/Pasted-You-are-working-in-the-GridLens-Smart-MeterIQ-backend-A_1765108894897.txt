@@ -1,0 +1,48 @@
+You are working in the GridLens / Smart MeterIQ backend API Replit.
+
+Goal:
+Make sure the backend cleanly supports the Energy Loss & Health (Electric) page for the React frontend and returns valid JSON from these endpoints:
+
+  GET /api/kpi/energy-loss/overview
+  GET /api/kpi/energy-loss/feeders
+  GET /api/kpi/energy-loss/suspicious-meters
+  GET /api/kpi/energy-loss/fieldops
+
+The frontend will be running elsewhere (local React app) and will call this Replit URL:
+
+  https://73f0d221-7b02-428e-a6ec-1d9bebd857bb-00-2dbtzbmvqtyw.kirk.replit.dev
+
+Your tasks:
+
+1. Inspect the current backend code (index.js, db.js, and any routes).
+   - Confirm there is an Express app.
+   - Confirm CORS is enabled for browser requests.
+   - Confirm an /api prefix is being used.
+
+2. Implement or clean up the four routes listed above under /api/kpi/energy-loss:
+   - If database tables and views exist for these KPIs, query them and return real values.
+   - If not, create realistic mock JSON objects and arrays that include fields like:
+     - overview: system_loss_pct, non_technical_loss_dollars_month, meters_in_good_health_pct, saidi, saifi, hotspot_feeder_count, revenue_recovered_30d, etc.
+     - feeders: array of feeders with feeder_name, loss_percent, kwh_lost_month, dollars_lost_month, active_work_orders.
+     - suspicious-meters: array with meter_id / account, location, pattern, estimated_loss_month, days_in_state, status.
+     - fieldops: summary of work orders (open_count, avg_age_days, resolved_30d_count, truck_rolls_avoided_est).
+
+   The exact field names are up to you, but they must be consistent and sensible so the frontend can consume them.
+
+3. Make sure:
+   - Every route returns JSON (res.json(...)) with HTTP 200 on success.
+   - If something fails internally, respond with a 500 and a JSON error object.
+   - CORS is enabled so a React app on localhost or another domain can call these endpoints without issues.
+
+4. Start the Express server and confirm:
+   - The root or health endpoint still works (if there is one).
+   - A GET request to each of the four endpoints returns valid JSON and DOES NOT return 404 or HTML.
+
+5. Clean up:
+   - Remove any obsolete or conflicting mock routes for these same paths.
+   - Keep the code organized (e.g., move these routes to a dedicated router module if that fits the existing structure).
+
+When done, summarize:
+- Which files you modified.
+- The JSON shape that each of the four endpoints returns.
+- Any assumptions you made about data sources (real DB vs mock).
