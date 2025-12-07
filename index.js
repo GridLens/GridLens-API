@@ -492,6 +492,8 @@ app.get("/api/kpi/energy-loss/overview", (req, res) => {
     healthy_meters: 11250,
     problem_meters: 750,
     system_health_percent: 93.8,
+    lossPercent: 6.25,
+    totalLossKWh: 4520,
     by_zone: [
       { zone: "Zone 1", percent_healthy: 94 },
       { zone: "Zone 2", percent_healthy: 92 },
