@@ -487,15 +487,13 @@ app.get("/api/debug/test", (req, res) => {
 // ---------------------------
 app.get("/api/kpi/energy-loss/overview", (req, res) => {
   res.json({
-    tenant: "HSUD",
-    asOfDate: "2025-12-06",
-    systemLossPct: 5.8,
-    nonTechnicalLossDollarsMonth: 38200,
-    metersInGoodHealthPct: 96.4,
-    saidiMinutes: 42.3,
-    saifiEvents: 1.8,
-    lossHotspotFeedersCount: 3,
-    revenueRecovered30d: 18750
+    systemLossPct: 8.5,
+    nonTechnicalLossDollarsMonth: 12500,
+    metersInGoodHealthPct: 92.3,
+    saidiMinutes: 110,
+    saifiInterruptions: 1.7,
+    hotspotFeederCount: 3,
+    revenueRecoveredLast30Days: 42000
   });
 });
 
@@ -505,31 +503,20 @@ app.get("/api/kpi/energy-loss/overview", (req, res) => {
 // ---------------------------
 app.get("/api/kpi/energy-loss/feeders", (req, res) => {
   res.json({
-    tenant: "HSUD",
-    feeders: [
+    items: [
       {
-        feederName: "FDR-3",
-        zoneName: "North Zone",
-        lossPct: 7.5,
-        kwhLostMonth: 18000,
-        dollarsLostMonth: 9500,
+        feederName: "Feeder 1",
+        lossPct: 14.2,
+        kwhLostMonth: 123456,
+        dollarsLostMonth: 9800,
         activeWorkOrders: 2
       },
       {
-        feederName: "FDR-5",
-        zoneName: "Central Zone",
-        lossPct: 5.3,
-        kwhLostMonth: 12000,
-        dollarsLostMonth: 6400,
+        feederName: "Feeder 2",
+        lossPct: 9.8,
+        kwhLostMonth: 65432,
+        dollarsLostMonth: 5200,
         activeWorkOrders: 1
-      },
-      {
-        feederName: "FDR-7",
-        zoneName: "South Zone",
-        lossPct: 4.1,
-        kwhLostMonth: 8200,
-        dollarsLostMonth: 4100,
-        activeWorkOrders: 0
       }
     ]
   });
@@ -541,33 +528,23 @@ app.get("/api/kpi/energy-loss/feeders", (req, res) => {
 // ---------------------------
 app.get("/api/kpi/energy-loss/suspicious-meters", (req, res) => {
   res.json({
-    tenant: "HSUD",
-    meters: [
+    items: [
       {
-        meterId: "E-10021",
-        accountName: "Smith Residence",
-        location: "120 Oak St",
-        pattern: "Suspected bypass",
-        estLossDollarsMonth: 220,
-        daysInState: 7,
-        status: "Open"
+        meterId: "MTR-1001",
+        accountName: "Test Customer 1",
+        location: "Sample Street 1",
+        pattern: "Reverse energy",
+        estimatedLossDollarsMonth: 250,
+        daysInState: 14,
+        status: "Unassigned"
       },
       {
-        meterId: "E-55192",
-        accountName: "Residential",
-        location: "309 Pine St",
-        pattern: "Zero usage anomaly",
-        estLossDollarsMonth: 80,
-        daysInState: 11,
-        status: "Investigating"
-      },
-      {
-        meterId: "E-88012",
-        accountName: "Corner Market",
-        location: "510 Main St",
-        pattern: "Voltage mismatch + tamper",
-        estLossDollarsMonth: 310,
-        daysInState: 4,
+        meterId: "MTR-1002",
+        accountName: "Test Customer 2",
+        location: "Sample Street 2",
+        pattern: "Zero usage",
+        estimatedLossDollarsMonth: 120,
+        daysInState: 9,
         status: "In progress"
       }
     ]
@@ -580,13 +557,10 @@ app.get("/api/kpi/energy-loss/suspicious-meters", (req, res) => {
 // ---------------------------
 app.get("/api/kpi/energy-loss/fieldops", (req, res) => {
   res.json({
-    tenant: "HSUD",
-    summary: {
-      openLossWorkOrders: 12,
-      avgAgeDays: 5.3,
-      truckRollsAvoidedEstimate: 8,
-      resolvedLast30d: 19
-    }
+    workOrdersOpen: 7,
+    workOrdersResolvedLast30Days: 18,
+    avgAgeDays: 5.3,
+    truckRollsAvoidedEstimate: 11
   });
 });
 

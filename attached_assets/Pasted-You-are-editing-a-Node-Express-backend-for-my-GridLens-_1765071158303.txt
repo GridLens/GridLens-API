@@ -1,0 +1,94 @@
+You are editing a Node/Express backend for my GridLens Smart MeterIQ API.
+
+Goal:
+Make sure these GET endpoints exist and return valid JSON (even if it's mock data):
+
+- GET /api/kpi/energy-loss/overview
+- GET /api/kpi/energy-loss/feeders
+- GET /api/kpi/energy-loss/suspicious-meters
+- GET /api/kpi/energy-loss/fieldops
+
+Steps to perform:
+
+1. Open index.js (or the main Express server file).
+
+2. Confirm CORS is enabled with something like:
+   const cors = require('cors');
+   app.use(cors());
+
+   If CORS is not enabled, enable it.
+
+3. For each of the four routes above, ensure there is a handler like this (you can adjust names, but keep the shape):
+
+   app.get('/api/kpi/energy-loss/overview', (req, res) => {
+     res.json({
+       systemLossPct: 8.5,
+       nonTechnicalLossDollarsMonth: 12500,
+       metersInGoodHealthPct: 92.3,
+       saidiMinutes: 110,
+       saifiInterruptions: 1.7,
+       hotspotFeederCount: 3,
+       revenueRecoveredLast30Days: 42000
+     });
+   });
+
+   app.get('/api/kpi/energy-loss/feeders', (req, res) => {
+     res.json({
+       items: [
+         {
+           feederName: 'Feeder 1',
+           lossPct: 14.2,
+           kwhLostMonth: 123456,
+           dollarsLostMonth: 9800,
+           activeWorkOrders: 2
+         },
+         {
+           feederName: 'Feeder 2',
+           lossPct: 9.8,
+           kwhLostMonth: 65432,
+           dollarsLostMonth: 5200,
+           activeWorkOrders: 1
+         }
+       ]
+     });
+   });
+
+   app.get('/api/kpi/energy-loss/suspicious-meters', (req, res) => {
+     res.json({
+       items: [
+         {
+           meterId: 'MTR-1001',
+           accountName: 'Test Customer 1',
+           location: 'Sample Street 1',
+           pattern: 'Reverse energy',
+           estimatedLossDollarsMonth: 250,
+           daysInState: 14,
+           status: 'Unassigned'
+         },
+         {
+           meterId: 'MTR-1002',
+           accountName: 'Test Customer 2',
+           location: 'Sample Street 2',
+           pattern: 'Zero usage',
+           estimatedLossDollarsMonth: 120,
+           daysInState: 9,
+           status: 'In progress'
+         }
+       ]
+     });
+   });
+
+   app.get('/api/kpi/energy-loss/fieldops', (req, res) => {
+     res.json({
+       workOrdersOpen: 7,
+       workOrdersResolvedLast30Days: 18,
+       avgAgeDays: 5.3,
+       truckRollsAvoidedEstimate: 11
+     });
+   });
+
+4. Do NOT change any existing DB code; just add these routes if they are missing.
+
+5. Make sure app.listen(...) is still present at the bottom and the server runs on the default Replit port.
+
+After you add or confirm these routes, restart the Replit server so it is live.
