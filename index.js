@@ -488,21 +488,10 @@ app.get("/api/debug/test", (req, res) => {
 app.get("/api/kpi/energy-loss/overview", (req, res) => {
   console.log("[API] GET /api/kpi/energy-loss/overview");
   res.json({
-    total_meters: 12000,
-    healthy_meters: 11250,
-    problem_meters: 750,
-    system_health_percent: 93.8,
-    lossPercent: 6.25,
     totalLossKWh: 4520,
-    by_zone: [
-      { zone: "Zone 1", percent_healthy: 94 },
-      { zone: "Zone 2", percent_healthy: 92 },
-      { zone: "Zone 3", percent_healthy: 95 }
-    ],
-    sample_problem_meters: [
-      { meter_id: "10012345", address: "123 Main St", zone: "Zone 2", status: "UNREACHABLE" },
-      { meter_id: "10056789", address: "456 Oak St", zone: "Zone 3", status: "LEAK-SUSPECT" }
-    ]
+    lossPercent: 6.25,
+    topLossFeeders: ["FDR-101", "FDR-202", "FDR-303"],
+    lastUpdated: new Date().toISOString()
   });
 });
 
@@ -513,8 +502,9 @@ app.get("/api/kpi/energy-loss/overview", (req, res) => {
 app.get("/api/kpi/energy-loss/feeders", (req, res) => {
   console.log("[API] GET /api/kpi/energy-loss/feeders");
   res.json([
-    { feeder_id: "FDR-101", loss_kw: 42.5, health: 98.2 },
-    { feeder_id: "FDR-202", loss_kw: 61.1, health: 96.4 }
+    { feeder: "FDR-101", lossPercent: 4.25 },
+    { feeder: "FDR-202", lossPercent: 6.11 },
+    { feeder: "FDR-303", lossPercent: 3.82 }
   ]);
 });
 
@@ -525,8 +515,9 @@ app.get("/api/kpi/energy-loss/feeders", (req, res) => {
 app.get("/api/kpi/energy-loss/suspicious-meters", (req, res) => {
   console.log("[API] GET /api/kpi/energy-loss/suspicious-meters");
   res.json([
-    { meter_id: "20054321", address: "45 Oak St", zone: "Zone 3", est_loss: 520.75, risk_score: 0.91, status: "New" },
-    { meter_id: "20098765", address: "99 Pine Ave", zone: "Zone 2", est_loss: 310.10, risk_score: 0.84, status: "Investigating" }
+    { meterId: "20054321", issue: "Reverse energy flow detected" },
+    { meterId: "20098765", issue: "Zero usage anomaly" },
+    { meterId: "20012345", issue: "Voltage mismatch" }
   ]);
 });
 
@@ -537,8 +528,9 @@ app.get("/api/kpi/energy-loss/suspicious-meters", (req, res) => {
 app.get("/api/kpi/energy-loss/fieldops", (req, res) => {
   console.log("[API] GET /api/kpi/energy-loss/fieldops");
   res.json([
-    { task_id: "T-1001", meter_id: "10012345", priority: "High", task: "Replace meter", status: "Pending" },
-    { task_id: "T-1002", meter_id: "10056789", priority: "Medium", task: "Inspect location", status: "Pending" }
+    { id: 1001, meterId: "10012345", task: "Replace meter" },
+    { id: 1002, meterId: "10056789", task: "Inspect location" },
+    { id: 1003, meterId: "10098765", task: "Verify tamper seal" }
   ]);
 });
 

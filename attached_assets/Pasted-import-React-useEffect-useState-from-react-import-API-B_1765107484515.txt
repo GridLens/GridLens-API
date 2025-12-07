@@ -1,0 +1,270 @@
+import React, { useEffect, useState } from "react";
+import { API_BASE, ELECTRIC_KPI_CARDS } from "../config/kpis";
+
+type OverviewResponse = {
+  totalLossKWh: number;
+  lossPercent: number;
+  topLossFeeders: string[];
+  lastUpdated: string;
+};
+
+type FeederRow = {
+  feeder: string;
+  lossPercent: number;
+};
+
+type SuspiciousMeterRow = {
+  meterId: string;
+  issue: string;
+};
+
+type FieldOpsRow = {
+  id: number;
+  meterId: string;
+  task: string;
+};
+
+const EnergyLossHealth: React.FC = () => {
+  const [overview, setOverview] = useState<OverviewResponse | null>(null);
+  const [feeders, setFeeders] = useState<FeederRow[]>([]);
+  const [suspiciousMeters, setSuspiciousMeters] = useState<SuspiciousMeterRow[]>([]);
+  const [fieldOps, setFieldOps] = useState<FieldOpsRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const [overviewRes, feedersRes, suspiciousRes, fieldOpsRes] =
+          await Promise.all([
+            fetch(`${API_BASE}/api/kpi/energy-loss/overview`),
+            fetch(`${API_BASE}/api/kpi/energy-loss/feeders`),
+            fetch(`${API_BASE}/api/kpi/energy-loss/suspicious-meters`),
+            fetch(`${API_BASE}/api/kpi/energy-loss/fieldops`),
+          ]);
+
+        if (!overviewRes.ok || !feedersRes.ok || !suspiciousRes.ok || !fieldOpsRes.ok) {
+          throw new Error("One or more KPI endpoints returned an error");
+        }
+
+        const overviewJson: OverviewResponse = await overviewRes.json();
+        const feedersJson: FeederRow[] = await feedersRes.json();
+        const suspiciousJson: SuspiciousMeterRow[] = await suspiciousRes.json();
+        const fieldOpsJson: FieldOpsRow[] = await fieldOpsRes.json();
+
+        setOverview(overviewJson);
+        setFeeders(feedersJson);
+        setSuspiciousMeters(suspiciousJson);
+        setFieldOps(fieldOpsJson);
+      } catch (err: any) {
+        console.error(err);
+        setError(err.message || "Failed to load KPI data");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+
+    // Optional: auto-refresh every 60 seconds
+    const interval = setInterval(fetchData, 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const formatValue = (value: any, format?: string) => {
+    if (value == null) return "—";
+    if (format === "percent") return `${value.toFixed(1)}%`;
+    if (format === "number") return value.toLocaleString();
+    return String(value);
+  };
+
+  const getKpiValue = (cardKey: string) => {
+    switch (cardKey) {
+      case "system_loss_percent":
+        return overview?.lossPercent ?? null;
+      case "total_loss_kwh":
+        return overview?.totalLossKWh ?? null;
+      case "suspicious_meter_count":
+        return suspiciousMeters.length;
+      case "field_work_items_open":
+        return fieldOps.length;
+      default:
+        return null;
+    }
+  };
+
+  if (loading) {
+    return <div style={{ padding: "1.5rem" }}>Loading Energy Loss &amp; Health…</div>;
+  }
+
+  if (error) {
+    return (
+      <div style={{ padding: "1.5rem", color: "red" }}>
+        Error loading KPIs: {error}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+      <header>
+        <h1 style={{ fontSize: "1.8rem", fontWeight: 600 }}>Energy Loss &amp; Health</h1>
+        <p style={{ color: "#555", marginTop: "0.25rem" }}>
+          High-level view of system loss, suspicious meters, and field operations.
+        </p>
+        {overview?.lastUpdated && (
+          <p style={{ fontSize: "0.85rem", color: "#777", marginTop: "0.25rem" }}>
+            Last updated: {new Date(overview.lastUpdated).toLocaleString()}
+          </p>
+        )}
+      </header>
+
+      {/* KPI CARDS */}
+      <section
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+          gap: "1rem",
+        }}
+      >
+        {ELECTRIC_KPI_CARDS.map((card) => {
+          const rawValue = getKpiValue(card.key);
+          const formatted = formatValue(rawValue, card.format);
+          return (
+            <div
+              key={card.key}
+              style={{
+                padding: "1rem",
+                borderRadius: "0.75rem",
+                border: "1px solid #eee",
+                boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+                background: "#fff",
+              }}
+            >
+              <div style={{ fontSize: "0.85rem", color: "#666", marginBottom: "0.35rem" }}>
+                {card.label}
+              </div>
+              <div style={{ fontSize: "1.6rem", fontWeight: 600 }}>{formatted}</div>
+            </div>
+          );
+        })}
+      </section>
+
+      {/* FEEDER LOSS TABLE */}
+      <section>
+        <h2 style={{ fontSize: "1.2rem", fontWeight: 600, marginBottom: "0.5rem" }}>
+          Feeder Loss Breakdown
+        </h2>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.9rem" }}>
+            <thead>
+              <tr style={{ background: "#f9fafb" }}>
+                <th style={thStyle}>Feeder</th>
+                <th style={thStyle}>Loss %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {feeders.map((row) => (
+                <tr key={row.feeder}>
+                  <td style={tdStyle}>{row.feeder}</td>
+                  <td style={tdStyle}>{row.lossPercent.toFixed(1)}%</td>
+                </tr>
+              ))}
+              {feeders.length === 0 && (
+                <tr>
+                  <td style={tdStyle} colSpan={2}>
+                    No feeder data available.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* SUSPICIOUS METERS */}
+      <section>
+        <h2 style={{ fontSize: "1.2rem", fontWeight: 600, marginBottom: "0.5rem" }}>
+          Suspicious Meters
+        </h2>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.9rem" }}>
+            <thead>
+              <tr style={{ background: "#f9fafb" }}>
+                <th style={thStyle}>Meter ID</th>
+                <th style={thStyle}>Issue</th>
+              </tr>
+            </thead>
+            <tbody>
+              {suspiciousMeters.map((row) => (
+                <tr key={row.meterId}>
+                  <td style={tdStyle}>{row.meterId}</td>
+                  <td style={tdStyle}>{row.issue}</td>
+                </tr>
+              ))}
+              {suspiciousMeters.length === 0 && (
+                <tr>
+                  <td style={tdStyle} colSpan={2}>
+                    No suspicious meters currently flagged.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* FIELD OPS WORK QUEUE */}
+      <section>
+        <h2 style={{ fontSize: "1.2rem", fontWeight: 600, marginBottom: "0.5rem" }}>
+          FieldOps Work Queue
+        </h2>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.9rem" }}>
+            <thead>
+              <tr style={{ background: "#f9fafb" }}>
+                <th style={thStyle}>Ticket ID</th>
+                <th style={thStyle}>Meter ID</th>
+                <th style={thStyle}>Task</th>
+              </tr>
+            </thead>
+            <tbody>
+              {fieldOps.map((row) => (
+                <tr key={row.id}>
+                  <td style={tdStyle}>{row.id}</td>
+                  <td style={tdStyle}>{row.meterId}</td>
+                  <td style={tdStyle}>{row.task}</td>
+                </tr>
+              ))}
+              {fieldOps.length === 0 && (
+                <tr>
+                  <td style={tdStyle} colSpan={3}>
+                    No open field work items.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
+};
+
+const thStyle: React.CSSProperties = {
+  textAlign: "left",
+  padding: "0.5rem 0.75rem",
+  borderBottom: "1px solid #e5e7eb",
+  fontWeight: 500,
+  color: "#555",
+};
+
+const tdStyle: React.CSSProperties = {
+  padding: "0.45rem 0.75rem",
+  borderBottom: "1px solid #f1f3f5",
+};
+
+export default EnergyLossHealth;
