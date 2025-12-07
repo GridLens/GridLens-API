@@ -1,0 +1,79 @@
+You are to fix the backend API for GridLens Energy so that the Energy Loss & Health (Electric) page works.
+
+Make ALL FOUR endpoints real, live, and returning JSON — exactly in this structure:
+
+BASE PATH:
+    /api/kpi/energy-loss
+
+ENDPOINTS TO IMPLEMENT:
+--------------------------------------------------
+1) GET /overview
+--------------------------------------------------
+Return JSON shaped like:
+
+{
+  "total_meters": 12000,
+  "healthy_meters": 11250,
+  "problem_meters": 750,
+  "system_health_percent": 93.8,
+  "by_zone": [
+    { "zone": "Zone 1", "percent_healthy": 94 },
+    { "zone": "Zone 2", "percent_healthy": 92 },
+    { "zone": "Zone 3", "percent_healthy": 95 }
+  ],
+  "sample_problem_meters": [
+    { "meter_id": "10012345", "address": "123 Main St", "zone": "Zone 2", "status": "UNREACHABLE" },
+    { "meter_id": "10056789", "address": "456 Oak St", "zone": "Zone 3", "status": "LEAK-SUSPECT" }
+  ]
+}
+
+
+--------------------------------------------------
+2) GET /feeders
+--------------------------------------------------
+Return JSON like:
+
+[
+  { "feeder_id": "FDR-101", "loss_kw": 42.5, "health": 98.2 },
+  { "feeder_id": "FDR-202", "loss_kw": 61.1, "health": 96.4 }
+]
+
+
+--------------------------------------------------
+3) GET /suspicious-meters
+--------------------------------------------------
+Return JSON like:
+
+[
+  { "meter_id": "20054321", "address": "45 Oak St", "zone": "Zone 3", "est_loss": 520.75, "risk_score": 0.91, "status": "New" },
+  { "meter_id": "20098765", "address": "99 Pine Ave", "zone": "Zone 2", "est_loss": 310.10, "risk_score": 0.84, "status": "Investigating" }
+]
+
+
+--------------------------------------------------
+4) GET /fieldops
+--------------------------------------------------
+Return JSON like:
+
+[
+  { "task_id": "T-1001", "meter_id": "10012345", "priority": "High", "task": "Replace meter", "status": "Pending" },
+  { "task_id": "T-1002", "meter_id": "10056789", "priority": "Medium", "task": "Inspect location", "status": "Pending" }
+]
+
+
+--------------------------------------------------
+REQUIREMENTS:
+--------------------------------------------------
+• All four endpoints MUST exist
+• All four endpoints MUST return valid JSON (NOT HTML)
+• Each endpoint must log a message in the Replit console when hit
+• Enable CORS so Vite frontend can call these endpoints
+• Do NOT modify unrelated routes
+• When complete, test all four endpoints:
+      /api/kpi/energy-loss/overview
+      /api/kpi/energy-loss/feeders
+      /api/kpi/energy-loss/suspicious-meters
+      /api/kpi/energy-loss/fieldops
+
+Finally, only reply with:
+"Backend API fixed and live."
