@@ -591,6 +591,97 @@ app.get("/api/kpi/energy-loss/fieldops", (req, res) => {
 });
 
 // ---------------------------
+// GET /api/kpi/feeders
+// Feeder / zone loss view (MOCK DATA) - SHORT PATH
+// ---------------------------
+app.get("/api/kpi/feeders", (req, res) => {
+  res.json({
+    tenant: "HSUD",
+    feeders: [
+      {
+        feederName: "FDR-3",
+        zoneName: "North Zone",
+        lossPct: 7.5,
+        kwhLostMonth: 18000,
+        dollarsLostMonth: 9500,
+        activeWorkOrders: 2
+      },
+      {
+        feederName: "FDR-5",
+        zoneName: "Central Zone",
+        lossPct: 5.3,
+        kwhLostMonth: 12000,
+        dollarsLostMonth: 6400,
+        activeWorkOrders: 1
+      },
+      {
+        feederName: "FDR-7",
+        zoneName: "South Zone",
+        lossPct: 4.1,
+        kwhLostMonth: 8200,
+        dollarsLostMonth: 4100,
+        activeWorkOrders: 0
+      }
+    ]
+  });
+});
+
+// ---------------------------
+// GET /api/kpi/suspicious-meters
+// Suspicious meters table (MOCK DATA) - SHORT PATH
+// ---------------------------
+app.get("/api/kpi/suspicious-meters", (req, res) => {
+  res.json({
+    tenant: "HSUD",
+    meters: [
+      {
+        meterId: "E-10021",
+        accountName: "Smith Residence",
+        location: "120 Oak St",
+        pattern: "Suspected bypass",
+        estLossDollarsMonth: 220,
+        daysInState: 7,
+        status: "Open"
+      },
+      {
+        meterId: "E-55192",
+        accountName: "Residential",
+        location: "309 Pine St",
+        pattern: "Zero usage anomaly",
+        estLossDollarsMonth: 80,
+        daysInState: 11,
+        status: "Investigating"
+      },
+      {
+        meterId: "E-88012",
+        accountName: "Corner Market",
+        location: "510 Main St",
+        pattern: "Voltage mismatch + tamper",
+        estLossDollarsMonth: 310,
+        daysInState: 4,
+        status: "In progress"
+      }
+    ]
+  });
+});
+
+// ---------------------------
+// GET /api/kpi/fieldops
+// FieldOps KPI summary (MOCK DATA) - SHORT PATH
+// ---------------------------
+app.get("/api/kpi/fieldops", (req, res) => {
+  res.json({
+    tenant: "HSUD",
+    summary: {
+      openLossWorkOrders: 12,
+      avgAgeDays: 5.3,
+      truckRollsAvoidedEstimate: 8,
+      resolvedLast30d: 19
+    }
+  });
+});
+
+// ---------------------------
 // GET /meters
 // List all meters
 // Optional query: ?status=active&type=electric
