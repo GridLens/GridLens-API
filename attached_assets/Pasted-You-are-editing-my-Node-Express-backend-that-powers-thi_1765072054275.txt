@@ -1,0 +1,149 @@
+You are editing my Node/Express backend that powers this base URL:
+
+https://73f0d221-7b02-428e-a6ec-1d9bebd857bb-00-2dbtzbmvqtyw.kirk.replit.dev
+
+Goal:
+Make sure these GET endpoints EXIST and return valid JSON (even simple mock data):
+
+- GET /api/kpi/energy-loss/overview
+- GET /api/kpi/energy-loss/feeders
+- GET /api/kpi/energy-loss/suspicious-meters
+- GET /api/kpi/energy-loss/fieldops
+
+Important:
+- Do NOT change the module style (if index.js uses require(), keep using require; if it uses import, keep using import).
+- Do NOT remove or break any existing routes.
+- Just ADD or FIX these 4 endpoints so they return JSON with the fields my frontend expects.
+
+Steps to perform in this Replit:
+
+1. Open the main server file (likely index.js or server.js).
+
+2. Confirm there is an Express app, like:
+   const express = require('express')
+   const app = express()
+   or the ES module equivalent.
+
+   Also confirm CORS is enabled. If not, add:
+
+   const cors = require('cors')
+   app.use(cors())
+
+   or the equivalent import syntax that matches the file.
+
+3. SEARCH in this file for any existing routes that mention:
+   "energy-loss", "kpi", "suspicious", or "fieldops".
+
+   - If you find routes that are ALMOST right (for example '/kpi/energy-loss/overview' without '/api'), KEEP them, but ALSO add exact aliases at these paths:
+
+     '/api/kpi/energy-loss/overview'
+     '/api/kpi/energy-loss/feeders'
+     '/api/kpi/energy-loss/suspicious-meters'
+     '/api/kpi/energy-loss/fieldops'
+
+   - If no such routes exist yet, CREATE them.
+
+4. Add these four handlers (adapt to match the existing code style, but keep the response SHAPE the same):
+
+   // Overview KPIs
+   app.get('/api/kpi/energy-loss/overview', async (req, res) => {
+     try {
+       // For now, return mock data so my frontend stops failing.
+       // Later we can wire to Postgres views like kpi_electric_loss_daily.
+       res.json({
+         systemLossPct: 8.5,
+         nonTechnicalLossDollarsMonth: 12500,
+         metersInGoodHealthPct: 92.3,
+         saidiMinutes: 110,
+         saifiInterruptions: 1.7,
+         hotspotFeederCount: 3,
+         revenueRecoveredLast30Days: 42000
+       })
+     } catch (err) {
+       console.error('overview error', err)
+       res.status(500).json({ error: 'Failed to load energy loss overview' })
+     }
+   })
+
+   // Feeders loss list
+   app.get('/api/kpi/energy-loss/feeders', async (req, res) => {
+     try {
+       res.json({
+         items: [
+           {
+             feederName: 'Feeder 1',
+             lossPct: 14.2,
+             kwhLostMonth: 123456,
+             dollarsLostMonth: 9800,
+             activeWorkOrders: 2
+           },
+           {
+             feederName: 'Feeder 2',
+             lossPct: 9.8,
+             kwhLostMonth: 65432,
+             dollarsLostMonth: 5200,
+             activeWorkOrders: 1
+           }
+         ]
+       })
+     } catch (err) {
+       console.error('feeders error', err)
+       res.status(500).json({ error: 'Failed to load feeder loss data' })
+     }
+   })
+
+   // Suspicious meters table
+   app.get('/api/kpi/energy-loss/suspicious-meters', async (req, res) => {
+     try {
+       res.json({
+         items: [
+           {
+             meterId: 'MTR-1001',
+             accountName: 'Test Customer 1',
+             location: 'Sample Street 1',
+             pattern: 'Reverse energy',
+             estimatedLossDollarsMonth: 250,
+             daysInState: 14,
+             status: 'Unassigned'
+           },
+           {
+             meterId: 'MTR-1002',
+             accountName: 'Test Customer 2',
+             location: 'Sample Street 2',
+             pattern: 'Zero usage',
+             estimatedLossDollarsMonth: 120,
+             daysInState: 9,
+             status: 'In progress'
+           }
+         ]
+       })
+     } catch (err) {
+       console.error('suspicious meters error', err)
+       res.status(500).json({ error: 'Failed to load suspicious meters' })
+     }
+   })
+
+   // FieldOps summary
+   app.get('/api/kpi/energy-loss/fieldops', async (req, res) => {
+     try {
+       res.json({
+         workOrdersOpen: 7,
+         workOrdersResolvedLast30Days: 18,
+         avgAgeDays: 5.3,
+         truckRollsAvoidedEstimate: 11
+       })
+     } catch (err) {
+       console.error('fieldops error', err)
+       res.status(500).json({ error: 'Failed to load field operations summary' })
+     }
+   })
+
+5. Make sure app.listen(...) at the bottom is still there and uses the existing port (e.g., process.env.PORT or 3000). Do NOT change the listening port logic Replit is already using.
+
+6. SAVE the file and click the big “Run” button in Replit to restart the server.
+
+After you’re done, the following URL MUST return JSON (not a 404 HTML page):
+
+https://73f0d221-7b02-428e-a6ec-1d9bebd857bb-00-2dbtzbmvqtyw.kirk.replit.dev/api/kpi/energy-loss/overview
+
+Verify that in the Replit webview or by opening it in the browser.
