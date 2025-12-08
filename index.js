@@ -479,35 +479,12 @@ app.get("/api/kpi/energy-loss/overview", (req, res) => {
     totalMeters: 12000,
     healthyMeters: 11250,
     problemMeters: 750,
-    systemHealthPct: 93.8,
-    healthyVsProblem: [
-      { label: "Healthy", value: 11250 },
-      { label: "Problem", value: 750 }
-    ],
+    systemHealthPercent: 93.8,
     percentHealthyByZone: [
-      { zone: "Zone 1", percentHealthy: 96.2 },
-      { zone: "Zone 2", percentHealthy: 92.7 },
-      { zone: "Zone 3", percentHealthy: 91.5 }
-    ],
-    sampleProblemMeters: [
-      {
-        meterId: "E-551032",
-        address: "456 Pine St",
-        zone: "Zone 2",
-        status: "In Progress"
-      },
-      {
-        meterId: "E-551041",
-        address: "210 Maple Ave",
-        zone: "Zone 3",
-        status: "New"
-      },
-      {
-        meterId: "E-445021",
-        address: "123 Oak St",
-        zone: "Zone 1",
-        status: "Unassigned"
-      }
+      { zone: "Zone 1", percentHealthy: 92 },
+      { zone: "Zone 2", percentHealthy: 94 },
+      { zone: "Zone 3", percentHealthy: 95 },
+      { zone: "Zone 4", percentHealthy: 91 }
     ]
   });
 });
@@ -520,39 +497,36 @@ app.get("/api/kpi/energy-loss/feeders", (req, res) => {
   console.log("[API] GET /api/kpi/energy-loss/feeders");
   res.status(200).json([
     {
-      feeder: "FDR-101",
-      lossPct: 14.2,
-      lossKwhPerMonth: 3200,
-      lossDollarsPerMonth: 4800,
-      activeWorkOrders: 2
+      name: "Feeder 101",
+      zone: "Zone 1",
+      loss_percent: 4.2,
+      loss_kwh: 12500,
+      loss_dollars: 18750,
+      active_work_orders: 2
     },
     {
-      feeder: "FDR-202",
-      lossPct: 8.7,
-      lossKwhPerMonth: 1900,
-      lossDollarsPerMonth: 2850,
-      activeWorkOrders: 1
+      name: "Feeder 202",
+      zone: "Zone 2",
+      loss_percent: 3.1,
+      loss_kwh: 9800,
+      loss_dollars: 14700,
+      active_work_orders: 1
     },
     {
-      feeder: "FDR-303",
-      lossPct: 5.2,
-      lossKwhPerMonth: 1100,
-      lossDollarsPerMonth: 1650,
-      activeWorkOrders: 0
+      name: "Feeder 303",
+      zone: "Zone 3",
+      loss_percent: 2.6,
+      loss_kwh: 7600,
+      loss_dollars: 11400,
+      active_work_orders: 0
     },
     {
-      feeder: "FDR-404",
-      lossPct: 11.3,
-      lossKwhPerMonth: 2400,
-      lossDollarsPerMonth: 3600,
-      activeWorkOrders: 3
-    },
-    {
-      feeder: "FDR-505",
-      lossPct: 3.8,
-      lossKwhPerMonth: 800,
-      lossDollarsPerMonth: 1200,
-      activeWorkOrders: 0
+      name: "Feeder 404",
+      zone: "Zone 3",
+      loss_percent: 5.0,
+      loss_kwh: 15000,
+      loss_dollars: 22500,
+      active_work_orders: 3
     }
   ]);
 });
@@ -568,41 +542,36 @@ app.get("/api/kpi/energy-loss/suspicious-meters", (req, res) => {
       meterId: "E-551032",
       address: "456 Pine St",
       zone: "Zone 2",
-      issueType: "suspected_theft",
-      lastReadDaysAgo: 6,
-      estMonthlyLossDollars: 320
+      status: "In Progress",
+      riskScore: 0.87
     },
     {
       meterId: "E-445021",
       address: "123 Oak St",
       zone: "Zone 1",
-      issueType: "reverse_flow",
-      lastReadDaysAgo: 17,
-      estMonthlyLossDollars: 190
+      status: "Unassigned",
+      riskScore: 0.91
     },
     {
       meterId: "E-662148",
       address: "789 Elm Ave",
       zone: "Zone 3",
-      issueType: "constant_low_usage",
-      lastReadDaysAgo: 31,
-      estMonthlyLossDollars: 85
+      status: "Scheduled",
+      riskScore: 0.72
     },
     {
       meterId: "E-773259",
       address: "321 Main St",
-      zone: "Zone 1",
-      issueType: "suspected_bypass",
-      lastReadDaysAgo: 5,
-      estMonthlyLossDollars: 425
+      zone: "Zone 3",
+      status: "Open",
+      riskScore: 0.95
     },
     {
       meterId: "E-884370",
       address: "555 Cedar Blvd",
       zone: "Zone 2",
-      issueType: "erratic_usage",
-      lastReadDaysAgo: 14,
-      estMonthlyLossDollars: 156
+      status: "In Progress",
+      riskScore: 0.68
     }
   ]);
 });

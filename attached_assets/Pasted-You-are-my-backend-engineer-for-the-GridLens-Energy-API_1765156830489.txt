@@ -1,0 +1,174 @@
+You are my backend engineer for the GridLens Energy API.
+
+This Repl is the Node/Express backend that serves KPI endpoints for Smart MeterIQ.
+
+GOAL
+-----
+Update the mock data for the **electric Energy Loss & Health** KPIs so the frontend React page at
+`/energy-loss-health` shows realistic values:
+
+- Not all meters are "problem" meters.
+- The summary tiles show a healthy system but with meaningful loss.
+- The feeders table shows names and dollar impact, not blank cells.
+
+FILES TO EDIT
+-------------
+Work ONLY in `index.js` (or whichever main server file defines the routes).
+DO NOT change the shape of the Express app or ports.
+
+WHAT THE FRONTEND EXPECTS
+-------------------------
+1) Overview endpoint:
+   Route: GET `/api/kpi/energy-loss/overview`
+
+   Return JSON with at least these fields:
+
+   ```js
+   {
+     totalMeters: number,          // e.g. 12000
+     healthyMeters: number,       // e.g. 11250
+     problemMeters: number,       // e.g. 750
+     systemHealthPercent: number, // e.g. 93.8
+
+     percentHealthyByZone: [
+       { zone: 'Zone 1', percentHealthy: 92 },
+       { zone: 'Zone 2', percentHealthy: 94 },
+       { zone: 'Zone 3', percentHealthy: 95 }
+     ]
+   }
+Make these values:
+
+totalMeters: 12000
+
+healthyMeters: 11250
+
+problemMeters: 750
+
+systemHealthPercent: 93.8
+
+3–4 realistic zones in percentHealthyByZone.
+
+Feeders endpoint:
+Route: GET /api/kpi/energy-loss/feeders
+
+Return an array of feeder objects. Each feeder object should use
+property names that the React table understands:
+
+js
+Copy code
+{
+  name: string,              // feeder name or code
+  loss_percent: number,      // loss percentage (e.g. 4.2)
+  loss_kwh: number,          // monthly loss kWh (e.g. 12500)
+  loss_dollars: number,      // monthly loss dollars (e.g. 18500)
+  active_work_orders: number // count of active WOs
+}
+Example array (you can tune the exact numbers but keep them realistic):
+
+js
+Copy code
+[
+  {
+    name: 'Feeder 101',
+    zone: 'Zone 1',
+    loss_percent: 4.2,
+    loss_kwh: 12500,
+    loss_dollars: 18750,
+    active_work_orders: 2
+  },
+  {
+    name: 'Feeder 202',
+    zone: 'Zone 2',
+    loss_percent: 3.1,
+    loss_kwh: 9800,
+    loss_dollars: 14700,
+    active_work_orders: 1
+  },
+  {
+    name: 'Feeder 303',
+    zone: 'Zone 3',
+    loss_percent: 2.6,
+    loss_kwh: 7600,
+    loss_dollars: 11400,
+    active_work_orders: 0
+  },
+  {
+    name: 'Feeder 404',
+    zone: 'Zone 3',
+    loss_percent: 5.0,
+    loss_kwh: 15000,
+    loss_dollars: 22500,
+    active_work_orders: 3
+  }
+]
+IMPORTANT: Use exactly these property names:
+
+name
+
+loss_percent
+
+loss_kwh
+
+loss_dollars
+
+active_work_orders
+(and optional zone)
+
+The React table already knows how to read any of:
+
+name || feeder || feeder_name
+
+lossPct || loss_percent
+
+lossKwh || loss_kwh
+
+lossDollars || loss_dollars
+
+activeWo || active_work_orders
+
+For safety, choose the snake_case versions above.
+
+Suspicious meters endpoint:
+Route: GET /api/kpi/energy-loss/suspicious-meters
+
+Keep the existing structure, but make sure:
+
+meterId, address, zone, status, and riskScore fields are present
+
+values look consistent with the feeders (same zones, realistic IDs).
+
+FieldOps endpoint:
+Route: GET /api/kpi/energy-loss/fieldops
+
+Keep the structure you already have, but ensure:
+
+meterId matches IDs used in suspicious-meters/feeders where possible,
+
+zone matches the same zones as above,
+
+status, priority, and estimatedRecoveredDollars have realistic values.
+
+STEPS
+Find the existing handlers for:
+
+/api/kpi/energy-loss/overview
+
+/api/kpi/energy-loss/feeders
+
+/api/kpi/energy-loss/suspicious-meters
+
+/api/kpi/energy-loss/fieldops
+
+Replace ONLY the mock data objects/arrays in those handlers with
+the new realistic values/shape described above.
+
+Do NOT change the route paths or HTTP methods.
+
+After editing, run a quick self-test inside the Repl:
+
+Call each endpoint with curl or the built-in HTTP client and
+confirm they return JSON with the updated fields.
+
+When everything is done and the server is running without errors,
+respond only with:
+“Energy Loss KPI endpoints updated with realistic mock data and matching field names.”
