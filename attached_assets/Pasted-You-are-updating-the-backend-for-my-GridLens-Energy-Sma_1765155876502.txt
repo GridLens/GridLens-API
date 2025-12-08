@@ -1,0 +1,108 @@
+You are updating the backend for my GridLens Energy – Smart MeterIQ demo.
+
+Context:
+- This Repl is the backend API.
+- The React frontend is running in another Repl and calls these endpoints:
+
+  GET /api/kpi/energy-loss/overview
+  GET /api/kpi/energy-loss/feeders
+  GET /api/kpi/energy-loss/suspicious-meters
+  GET /api/kpi/energy-loss/fieldops
+
+- All routes are already wired and returning JSON, but some values are still zeros or missing. The frontend is no longer showing “Failed to fetch”, it just displays 0s.
+
+Your job:
+1. Open the file where those KPI endpoints are defined (likely index.js or a similar router file) and inspect the current JSON responses.
+
+2. Make the mock data **non-zero and realistic**, using these fields (do NOT change the route URLs):
+
+   For /api/kpi/energy-loss/overview, return an object with at least:
+   {
+     "totalMeters": 12000,
+     "healthyMeters": 11250,
+     "problemMeters": 750,
+     "systemHealthPct": 93.8,
+
+     "healthyVsProblem": [
+       { "label": "Healthy", "value": 11250 },
+       { "label": "Problem", "value": 750 }
+     ],
+
+     "percentHealthyByZone": [
+       { "zone": "Zone 1", "percentHealthy": 96.2 },
+       { "zone": "Zone 2", "percentHealthy": 92.7 },
+       { "zone": "Zone 3", "percentHealthy": 91.5 }
+     ],
+
+     "sampleProblemMeters": [
+       {
+         "meterId": "E-551032",
+         "address": "456 Pine St",
+         "zone": "Zone 2",
+         "status": "In Progress"
+       },
+       {
+         "meterId": "E-551041",
+         "address": "210 Maple Ave",
+         "zone": "Zone 3",
+         "status": "New"
+       }
+     ]
+   }
+
+   For /api/kpi/energy-loss/feeders, return an array like:
+   [
+     {
+       "feeder": "FDR-101",
+       "lossPct": 14.2,
+       "lossKwhPerMonth": 3200,
+       "lossDollarsPerMonth": 4800,
+       "activeWorkOrders": 2
+     },
+     {
+       "feeder": "FDR-202",
+       "lossPct": 8.7,
+       "lossKwhPerMonth": 1900,
+       "lossDollarsPerMonth": 2850,
+       "activeWorkOrders": 1
+     }
+   ]
+
+   For /api/kpi/energy-loss/suspicious-meters, return an array like:
+   [
+     {
+       "meterId": "E-551032",
+       "address": "456 Pine St",
+       "zone": "Zone 2",
+       "issueType": "suspected_theft",
+       "lastReadDaysAgo": 6,
+       "estMonthlyLossDollars": 320
+     }
+   ]
+
+   For /api/kpi/energy-loss/fieldops, return an array like:
+   [
+     {
+       "id": "WO-1001",
+       "meterId": "E-551032",
+       "type": "suspected_theft",
+       "location": "456 Pine St",
+       "zone": "Zone 2",
+       "status": "In Progress",
+       "priority": "High",
+       "ageDays": 4,
+       "assignedTo": "Tech Team A",
+       "estimatedRecoveredDollars": 320
+     }
+   ]
+
+3. IMPORTANT: Use **field names that match what the frontend already expects**. Before you finalize, quickly open the React frontend repo (or the EnergyLossHealthPage.jsx file if you can see it) and confirm the keys. If the frontend expects slightly different names (for example `loss_pct` instead of `lossPct`), update the JSON to match the React code instead of changing the React code.
+
+4. Keep CORS enabled exactly as it is. Do NOT rename the routes, do NOT change HTTP methods.
+
+5. After updating the JSON:
+   - Restart the server if necessary.
+   - Hit all four endpoints (curl or Replit HTTP test) to confirm they return the new non-zero data without errors.
+
+When you are done, respond only with:
+“Backend energy loss KPIs updated with realistic non-zero data and verified on all four endpoints.”
