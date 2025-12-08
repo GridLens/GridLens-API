@@ -1,0 +1,453 @@
+You are the backend engineer for GridLens Energy – Smart MeterIQ.
+
+We already have:
+
+A Node.js + Express backend in this Repl (gridlens-api)
+
+A React frontend (in a separate Repl) that calls this backend
+
+Some endpoints already working:
+
+GET /api/kpi/energy-loss/overview
+
+GET /api/kpi/energy-loss/feeders
+
+GET /api/kpi/energy-loss/suspicious-meters
+
+GET /api/kpi/energy-loss/fieldops
+
+Your job:
+Take full control of this backend and implement a clean, well-structured Node/Express API that matches the following API + (future) DB spec, without breaking any existing frontend calls.
+
+Use in-memory mock data modules for now (no real database yet), but structure the code so we can later plug in Postgres easily.
+
+0. Global Requirements
+
+Use Node.js + Express (keep the current stack).
+
+App must:
+
+Listen on port 5000
+
+Use express.json()
+
+Enable CORS for all origins:
+
+const cors = require('cors');
+app.use(cors());
+
+
+Keep all existing working endpoints and JSON shapes compatible with the frontend:
+
+Don’t rename keys the frontend already uses.
+
+Only extend/add fields where helpful.
+
+Organize code into modules:
+
+index.js (or server.js) – bootstraps the app.
+
+routes/ – one router per domain:
+
+systemHealthRouter
+
+waterLeaksRouter
+
+electricUsageRouter
+
+energyLossRouter (you may reuse/upgrade existing)
+
+outagesRouter
+
+fieldOpsRouter
+
+data/mockDb.js – central in-memory “DB” that holds all mock objects.
+
+Add basic error handling middleware that returns JSON:
+
+{ "error": "message here" }
+
+1. API SPEC – IMPLEMENT THESE ROUTES
+
+All routes are under /api.
+
+1. System Health (Electric fleet summary)
+
+Base path: /api/kpi/system-health
+
+Implement:
+
+GET /overview
+
+Response shape (match these keys):
+
+{
+  "totalMeters": 12000,
+  "healthyMeters": 11250,
+  "problemMeters": 750,
+  "systemHealthPct": 93.8,
+  "zones": [
+    { "zone": "Zone 1", "healthyPct": 94.2 },
+    { "zone": "Zone 2", "healthyPct": 93.1 },
+    { "zone": "Zone 3", "healthyPct": 92.0 },
+    { "zone": "Zone 4", "healthyPct": 95.0 }
+  ],
+  "sampleProblemMeters": [
+    {
+      "meterId": "E-551032",
+      "address": "456 Pine St",
+      "zone": "Zone 2",
+      "status": "UNREACHABLE"
+    }
+  ]
+}
+
+
+Use mock values that are realistic and internally consistent.
+
+2. Water – Leaks & Loss
+
+Base path: /api/kpi/water-leaks
+
+Implement:
+
+GET /overview
+
+GET /candidates
+
+Example response:
+
+// GET /overview
+{
+  "totalEstimatedLossDollars": 24850.35,
+  "candidateCount": 2,
+  "topLossSample": {
+    "meterId": "20054321",
+    "lossDollars": 520.75
+  },
+  "avgRiskScore": 0.9
+}
+
+// GET /candidates
+[
+  {
+    "meterId": "20054321",
+    "address": "45 Oak St",
+    "zone": "Zone 3",
+    "daysFlow": 9,
+    "riskScore": 0.91,
+    "estLossDollars": 520.75,
+    "status": "Investigating"
+  },
+  {
+    "meterId": "20098765",
+    "address": "99 Pine Ave",
+    "zone": "Zone 2",
+    "daysFlow": 6,
+    "riskScore": 0.84,
+    "estLossDollars": 3210.10,
+    "status": "New"
+  }
+]
+
+3. Electric – Usage & Loss
+
+Base path: /api/kpi/electric-usage
+
+Implement:
+
+GET /overview
+
+GET /trend
+
+GET /zones
+
+GET /top-loss-points
+
+Example responses:
+
+// GET /overview
+{
+  "totalUsageKWh": 1250000,
+  "estimatedLossKWh": 12500,
+  "avgDailyKWh": 25000,
+  "systemLossPct": 1.0,
+  "activeWorkOrders": 6
+}
+
+// GET /trend
+[
+  { "date": "2025-12-01", "kWh": 24500 },
+  { "date": "2025-12-02", "kWh": 25200 },
+  { "date": "2025-12-03", "kWh": 24900 }
+]
+
+// GET /zones
+[
+  { "zone": "Zone 1", "kWh": 320000 },
+  { "zone": "Zone 2", "kWh": 280000 },
+  { "zone": "Zone 3", "kWh": 220000 },
+  { "zone": "Zone 4", "kWh": 210000 }
+]
+
+// GET /top-loss-points
+[
+  {
+    "meterId": "E1001",
+    "address": "101 Grid Ave",
+    "zone": "Zone 1",
+    "lossKWh": 1200,
+    "lossDollars": 1875
+  }
+]
+
+4. Energy Loss & Health (Electric)
+
+Base path: /api/kpi/energy-loss
+
+These already exist — keep them working, but update internals to use a central mockDb and realistic data.
+
+GET /overview
+
+GET /feeders
+
+GET /suspicious-meters
+
+GET /fieldops
+
+Expected shapes (don’t break current frontend):
+
+// GET /overview
+{
+  "totalMeters": 12000,
+  "healthyMeters": 11250,
+  "problemMeters": 750,
+  "systemHealthPct": 93.8,
+  "zones": [
+    { "zone": "Zone 1", "healthyPct": 94.2 },
+    { "zone": "Zone 2", "healthyPct": 93.1 },
+    { "zone": "Zone 3", "healthyPct": 92.0 },
+    { "zone": "Zone 4", "healthyPct": 95.0 }
+  ]
+}
+
+// GET /feeders
+[
+  {
+    "feeder": "Feeder 101",
+    "zone": "Zone 1",
+    "lossPct": 4.2,
+    "lossKWh": 12500,
+    "lossDollars": 18750,
+    "activeWorkOrders": 2
+  }
+]
+
+// GET /suspicious-meters
+[
+  {
+    "meterId": "E-773259",
+    "address": "321 Main St",
+    "zone": "Zone 3",
+    "riskScore": 0.95,
+    "issueType": "suspected_theft"
+  }
+]
+
+// GET /fieldops
+[
+  {
+    "id": "WO-1001",
+    "meterId": "E-551032",
+    "type": "suspected_theft",
+    "location": "456 Pine St",
+    "zone": "Zone 2",
+    "status": "In Progress",
+    "priority": "High",
+    "ageDays": 4,
+    "assignedTo": "Tech Team A",
+    "estimatedRecoveredDollars": 320
+  }
+]
+
+5. Events & Outages
+
+Base path: /api/kpi/outages
+
+Implement:
+
+GET /overview
+
+GET /active-outages
+
+GET /reliability-30d
+
+GET /ami-events
+
+GET /critical-customers
+
+Example responses:
+
+// GET /overview
+{
+  "activeOutages": 5,
+  "customersOut": 382,
+  "feedersImpacted": 3,
+  "worstCurrentDurationHours": 6.4,
+  "avgRestorationMinutes30d": 72,
+  "sustainedInterruptions24h": 41,
+  "momentaryEvents30d": 136,
+  "criticalCustomersTracked": 3
+}
+
+// GET /active-outages
+[
+  {
+    "outageId": "OUT-1023",
+    "feeder": "FDR-3 North Loop",
+    "cause": "Tree on line",
+    "customersOut": 145,
+    "startedAt": "2025-12-06T07:42:00Z",
+    "etaRestore": "2025-12-06T10:30:00Z",
+    "priority": "High",
+    "status": "Crew onsite"
+  }
+]
+
+// GET /reliability-30d
+[
+  {
+    "feeder": "FDR-3",
+    "customers": 2100,
+    "outages": 7,
+    "customersInterrupted": 480,
+    "saidiMinutes": 82,
+    "saifi": 1.2,
+    "worstOutageMinutes": 190,
+    "priority": "High"
+  }
+]
+
+// GET /ami-events
+[
+  {
+    "time": "09:02",
+    "eventType": "Outage started",
+    "severity": "High",
+    "feeder": "FDR-3",
+    "metersAffected": 74,
+    "note": "Last-gasp from industrial segment; voltage loss detected."
+  }
+]
+
+// GET /critical-customers
+[
+  {
+    "customerName": "Regional Medical Center",
+    "meterId": "E-501122",
+    "feeder": "FDR-3",
+    "status": "On generator",
+    "lastEvent": "Sag / outage 45m ago",
+    "priority": "Critical"
+  }
+]
+
+6. FieldOps Queue
+
+Base path: /api/fieldops
+
+Implement:
+
+GET /queue – list of work orders
+
+GET /work-order/:id – detailed row (you can just look up in the mock data)
+
+Example:
+
+// GET /queue
+[
+  {
+    "id": "WO-2001",
+    "source": "electric_usage_loss",
+    "meterId": "E-551032",
+    "feeder": "FDR-3",
+    "zone": "Zone 2",
+    "issueCode": "CONTINUOUS_USAGE_7D",
+    "summary": "Continuous high usage for 7+ days – possible theft or wiring issue.",
+    "priority": "High",
+    "status": "Open",
+    "createdAt": "2025-12-05T09:00:00Z",
+    "ageDays": 2,
+    "estLossDollars": 420.5,
+    "linkContext": {
+      "page": "electric-loss",
+      "params": { "meterId": "E-551032" }
+    }
+  }
+]
+
+2. Mock “DB” Structure
+
+In data/mockDb.js (or similar), create JS structures roughly following:
+
+meters
+
+feeders
+
+zones
+
+suspiciousMeters
+
+lossDaily
+
+outages
+
+amiEvents
+
+criticalCustomers
+
+fieldWorkOrders
+
+You don’t have to fill everything perfectly, but make sure:
+
+IDs referenced across datasets line up (e.g., feeder IDs, meter IDs).
+
+The values match what the frontend is showing now (so charts and tables look realistic).
+
+All routers should import from this central mock data file.
+
+3. Development Flow (What I want you to actually DO)
+
+Inspect current code (index.js, any existing routes, mock data).
+
+Refactor into routes/ + data/mockDb.js while keeping existing endpoints working.
+
+Implement all new routes above.
+
+Ensure the app still listens on port 5000 with CORS enabled.
+
+Run the server and test key endpoints with curl:
+
+/api/kpi/energy-loss/overview
+
+/api/kpi/energy-loss/feeders
+
+/api/kpi/electric-usage/overview
+
+/api/kpi/outages/overview
+
+/api/fieldops/queue
+
+Fix any errors until all routes respond with valid JSON and no exceptions in the console.
+
+When you are done, respond with:
+
+Backend API fully implemented and all routes returning JSON successfully.
+
+and then show me a short summary of:
+
+which files you created/changed
+
+example JSON (1–2 endpoints)
+
+END OF PROMPT

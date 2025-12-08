@@ -9,6 +9,13 @@ import path from "path";
 import { fileURLToPath } from "url";
 import nodemailer from "nodemailer";
 
+import systemHealthRouter from "./routes/systemHealthRouter.js";
+import waterLeaksRouter from "./routes/waterLeaksRouter.js";
+import electricUsageRouter from "./routes/electricUsageRouter.js";
+import energyLossRouter from "./routes/energyLossRouter.js";
+import outagesRouter from "./routes/outagesRouter.js";
+import fieldOpsRouter from "./routes/fieldOpsRouter.js";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -126,6 +133,16 @@ const authMiddleware = (req, res, next) => {
 // Apply authentication to all routes
 app.use(authMiddleware);
 app.use(express.static(path.join(__dirname, "public")));
+
+// -----------------------------
+// Mount Modular Routers
+// -----------------------------
+app.use('/api/kpi/system-health', systemHealthRouter);
+app.use('/api/kpi/water-leaks', waterLeaksRouter);
+app.use('/api/kpi/electric-usage', electricUsageRouter);
+app.use('/api/kpi/energy-loss', energyLossRouter);
+app.use('/api/kpi/outages', outagesRouter);
+app.use('/api/fieldops', fieldOpsRouter);
 
 // -----------------------------
 // Fake in-memory data (MVP only)
