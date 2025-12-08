@@ -20,26 +20,9 @@ const app = express();
 
 // CORS Configuration - Enable cross-origin resource sharing
 const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (mobile apps, curl, Postman, etc.)
-    if (!origin) return callback(null, true);
-    // Allow all origins in development, can be restricted in production
-    return callback(null, true);
-  },
+  origin: '*',
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: [
-    'Content-Type',
-    'Authorization',
-    'X-Requested-With',
-    'Accept',
-    'Origin',
-    'X-API-Key',
-    'Cache-Control'
-  ],
-  exposedHeaders: ['X-Request-Id', 'X-Response-Time'],
-  credentials: true,
-  maxAge: 86400, // Cache preflight requests for 24 hours
-  optionsSuccessStatus: 200
+  allowedHeaders: ['Content-Type', 'Authorization']
 };
 
 app.use(cors(corsOptions));
