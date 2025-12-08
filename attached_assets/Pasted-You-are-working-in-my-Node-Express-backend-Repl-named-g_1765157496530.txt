@@ -1,0 +1,97 @@
+You are working in my Node/Express backend Repl named “gridlens-api”.
+
+GOAL
+-----
+Fix the JSON returned by the Energy Loss & Health (Electric) API so the frontend
+does NOT show:
+
+- Total Meters: 12,000
+- Healthy Meters: 0
+- Problem Meters: 12,000
+- System Health %: 0.0%
+
+Instead, I want realistic values like:
+
+- Total Meters: 12,000
+- Healthy Meters: 11,250
+- Problem Meters: 750
+- System Health %: 93.8%
+
+The React frontend already works and is calling this backend at:
+  /api/kpi/energy-loss/overview
+  /api/kpi/energy-loss/feeders
+  /api/kpi/energy-loss/suspicious-meters
+  /api/kpi/energy-loss/fieldops
+
+Do NOT change the routes or the URL paths. Only fix the mock data.
+
+WHAT TO DO (step-by-step)
+-------------------------
+1. Open the main server file (likely `index.js`).
+   - Find the Express handler that serves GET `/api/kpi/energy-loss/overview`.
+
+2. Print the CURRENT response object for that route so you can see what it returns.
+
+3. Replace ONLY the hard-coded mock values with these new ones:
+
+   ```js
+   const overview = {
+     totalMeters: 12000,
+     healthyMeters: 11250,
+     problemMeters: 750,
+     systemHealthPercent: 93.8,
+     percentHealthyByZone: [
+       { zone: 'Zone 1', percentHealthy: 92 },
+       { zone: 'Zone 2', percentHealthy: 94 },
+       { zone: 'Zone 3', percentHealthy: 95 }
+     ]
+   };
+Make sure the handler returns this object as JSON, for example:
+res.json(overview);
+
+Next, find the handler for GET /api/kpi/energy-loss/feeders.
+
+Make sure each feeder object uses these property names so the React table
+shows data in ALL columns:
+
+js
+Copy code
+{
+  name: 'Feeder 101',
+  zone: 'Zone 1',
+  loss_percent: 4.2,
+  loss_kwh: 12500,
+  loss_dollars: 18750,
+  active_work_orders: 2
+}
+Return an array of 4–5 realistic feeders using EXACTLY these keys:
+
+name
+
+zone
+
+loss_percent
+
+loss_kwh
+
+loss_dollars
+
+active_work_orders
+
+Do NOT change any other routes or the CORS setup.
+
+After editing, restart the server and SELF-TEST:
+
+Call each endpoint from inside the Repl (or using the built-in HTTP tester):
+
+GET /api/kpi/energy-loss/overview
+
+GET /api/kpi/energy-loss/feeders
+
+Confirm the overview JSON matches the new values.
+
+Confirm feeders JSON has the correct property names and non-zero values.
+
+Only when everything is working, respond with EXACTLY this sentence:
+
+Done — Energy Loss overview and feeders mock data updated and verified.
