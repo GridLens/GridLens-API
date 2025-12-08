@@ -1,0 +1,106 @@
+You are working in my Node/Express backend Repl called “gridlens-api”.
+
+GOAL
+======
+Make this backend FULLY power the Smart MeterIQ / GridLens dashboard frontends
+that are already running in Replit. When you are done:
+
+- All GET endpoints under /api/kpi/energy-loss/* return valid JSON.
+- The Energy Loss & Health (Electric) page shows realistic non-zero data:
+  - Total Meters, Healthy Meters, Problem Meters, System Health %.
+  - Feeders table fully populated (no blank columns).
+- Any Events & Outages and FieldOps endpoints needed by the frontend exist and
+  return reasonable mock data with correct shapes.
+
+You have permission to:
+- Read ALL files in this Repl.
+- Modify ANY backend code (routes, mock data, helpers) as long as URLs do not change.
+- Install small extra npm packages if needed.
+- Run curl or node scripts in the shell inside this Repl.
+
+DO NOT:
+- Change the route paths that the frontend already calls.
+- Break CORS (it must allow requests from the React frontend Repl).
+
+BACKEND CONTRACT
+================
+The frontend expects these endpoints (at least):
+
+- GET /api/kpi/energy-loss/overview
+  Should return JSON like:
+  {
+    "totalMeters": number,
+    "healthyMeters": number,
+    "problemMeters": number,
+    "systemHealthPercent": number,
+    "percentHealthyByZone": [
+      { "zone": string, "percentHealthy": number }
+    ]
+  }
+
+- GET /api/kpi/energy-loss/feeders
+  Should return an array like:
+  [
+    {
+      "name": string,
+      "zone": string,
+      "loss_percent": number,
+      "loss_kwh": number,
+      "loss_dollars": number,
+      "active_work_orders": number
+    },
+    ...
+  ]
+
+- GET /api/kpi/energy-loss/suspicious-meters
+  Should return an array of suspicious or problem meters including:
+  meterId, address, zone, issue/type, status, and any scores you use.
+
+- GET /api/kpi/energy-loss/fieldops
+  Should return an array of work orders including:
+  id, meterId, type, location, zone, status, priority, ageDays,
+  assignedTo, estimatedRecoveredDollars.
+
+If there are Events & Outages or FieldOps pages in the frontend, add
+matching endpoints under /api/kpi/events/* or /api/kpi/fieldops/*
+IF AND ONLY IF they are actually used by the frontend code.
+
+STEP-BY-STEP PLAN
+=================
+1. Scan the repo and find all existing KPI routes, especially those under
+   /api/kpi/energy-loss/*.
+
+2. For each route above:
+   - Ensure it exists.
+   - Ensure it responds with res.json(...) and not HTML or 404.
+   - Shape the JSON exactly as described in the BACKEND CONTRACT.
+
+3. Populate realistic mock data:
+   - Total meters ~ 10k–20k.
+   - HealthyMeters < totalMeters.
+   - ProblemMeters = totalMeters - healthyMeters.
+   - SystemHealthPercent computed accordingly (~90–99%).
+   - At least 3–5 feeder objects with non-zero losses.
+   - At least a couple of suspicious meters and fieldops records.
+
+4. Keep CORS enabled so the React frontend running in another Replit app
+   can call these endpoints from the browser.
+
+5. SELF-TEST from inside this Repl:
+   - Run the server.
+   - Use curl or the built-in HTTP client to call:
+     - /api/kpi/energy-loss/overview
+     - /api/kpi/energy-loss/feeders
+     - /api/kpi/energy-loss/suspicious-meters
+     - /api/kpi/energy-loss/fieldops
+   - Confirm:
+     - 200 OK status.
+     - Response is valid JSON.
+     - Keys and value types match the contract.
+
+6. Do NOT stop at the first partial success. Keep iterating until all
+   four endpoints are correct and consistent.
+
+When EVERYTHING above is verified, respond with EXACTLY this sentence:
+
+Done — backend KPI endpoints updated, returning realistic JSON, and verified with live requests.
