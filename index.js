@@ -13,6 +13,7 @@ import systemHealthRouter from "./routes/systemHealthRouter.js";
 import waterLeaksRouter from "./routes/waterLeaksRouter.js";
 import electricUsageRouter from "./routes/electricUsageRouter.js";
 import energyLossRouter from "./routes/energyLossRouter.js";
+import kpiEnergyLoss from "./routes/kpiEnergyLoss.js";
 import outagesRouter from "./routes/outagesRouter.js";
 import fieldOpsRouter from "./routes/fieldOpsRouter.js";
 
@@ -140,7 +141,7 @@ app.use(express.static(path.join(__dirname, "public")));
 app.use('/api/kpi/system-health', systemHealthRouter);
 app.use('/api/kpi/water-leaks', waterLeaksRouter);
 app.use('/api/kpi/electric-usage', electricUsageRouter);
-app.use('/api/kpi/energy-loss', energyLossRouter);
+app.use('/api/kpi/energy-loss', kpiEnergyLoss);
 app.use('/api/kpi/outages', outagesRouter);
 app.use('/api/fieldops', fieldOpsRouter);
 

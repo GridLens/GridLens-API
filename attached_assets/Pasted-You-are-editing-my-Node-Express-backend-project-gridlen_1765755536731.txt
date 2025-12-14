@@ -1,0 +1,137 @@
+You are editing my Node/Express backend project gridlens-api. The main entry file is index.js.
+
+Goal
+
+Add KPI endpoints under /api/kpi/energy-loss/ that read from Postgres views and return JSON in the exact format my frontend expects.
+
+Create a new route file
+
+Create: routes/kpiEnergyLoss.js
+
+Use CommonJS unless my project is ESM. (Most Replit Node templates use CommonJS. If index.js already uses require, then this route must use require too.)
+
+routes/kpiEnergyLoss.js must:
+
+const express = require("express");
+
+const { Pool } = require("pg");
+
+Create router = express.Router()
+
+Create pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : { rejectUnauthorized: false } });
+
+(Yes, keep rejectUnauthorized false for Azure Postgres.)
+
+Add helper:
+
+async function resolveTenantId(req):
+
+If req.query.tenantId exists and not empty, use it.
+
+Else query:
+
+SELECT tenant_id FROM meters WHERE tenant_id IS NOT NULL AND tenant_id <> '' LIMIT 1;
+
+
+If still none, return "DEMO_TENANT".
+
+Endpoints (exact)
+
+Implement:
+
+GET /overview
+
+Query:
+
+SELECT total_loss_kwh, loss_percent_pct, top_loss_feeders, last_updated
+FROM v_kpi_electric_overview_daily
+WHERE tenant_id = $1
+ORDER BY day DESC
+LIMIT 1;
+
+
+Return:
+
+{
+  totalLossKWh: Number(total_loss_kwh || 0),
+  lossPercent: Number(loss_percent_pct || 0),
+  topLossFeeders: top_loss_feeders || [],
+  lastUpdated: last_updated || new Date().toISOString()
+}
+
+
+If no rows, return zeros.
+
+GET /feeders
+
+Query:
+
+SELECT
+  COALESCE(f.feeder_name, f.feeder_code, fl.feeder_id::text) AS feeder,
+  round((fl.loss_percent * 100)::numeric, 2) AS loss_percent
+FROM v_kpi_electric_feeder_loss_daily fl
+LEFT JOIN feeders f ON f.id = fl.feeder_id
+WHERE fl.tenant_id = $1
+ORDER BY fl.day DESC, fl.loss_percent DESC
+LIMIT 50;
+
+
+Return:
+
+rows.map(r => ({ feeder: r.feeder, lossPercent: Number(r.loss_percent || 0) }))
+
+GET /suspicious-meters
+
+Query:
+
+SELECT meter_id, issue
+FROM v_kpi_suspicious_meters_daily
+WHERE tenant_id = $1
+ORDER BY day DESC
+LIMIT 50;
+
+
+Return:
+
+rows.map(r => ({ meterId: r.meter_id, issue: r.issue }))
+
+
+Add robust error handling:
+
+Wrap each handler in try/catch
+
+On error return res.status(500).json({ error: "KPI query failed", detail: err.message })
+
+Export:
+
+module.exports = router;
+
+At bottom, add comments with curl smoke tests.
+
+Now modify index.js (IMPORTANT)
+
+Open index.js and mount the route without breaking anything else.
+
+Add:
+
+const kpiEnergyLoss = require("./routes/kpiEnergyLoss");
+
+
+Add:
+
+app.use("/api/kpi/energy-loss", kpiEnergyLoss);
+
+
+Place it near other app.use("/api/...", ...) routes.
+
+Smoke test instructions (leave as comments)
+
+After implementation, I should be able to run:
+
+curl http://localhost:5000/api/kpi/energy-loss/overview
+
+curl http://localhost:5000/api/kpi/energy-loss/feeders
+
+curl http://localhost:5000/api/kpi/energy-loss/suspicious-meters
+
+Now implement exactly.
