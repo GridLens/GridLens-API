@@ -1,0 +1,65 @@
+You are editing my Node/Express backend. I need you to wire existing Postgres KPI VIEWS into my API.
+
+GOAL:
+Expose executive-ready endpoints that read from these views (already created in Azure Postgres):
+- public.v_kpi_electric_overview_daily
+- public.v_kpi_electric_feeder_loss_daily (if present; if not present, return a helpful error message)
+
+REQUIREMENTS:
+1) Update index.js to mount a router at:
+   /api/kpi/energy-loss
+
+2) Create a new router file at:
+   routes/kpiEnergyLoss.js
+
+3) Use pg Pool (DATABASE_URL from env). If Pool already exists, reuse it. Do NOT hardcode credentials.
+4) Tenant logic:
+   - Determine tenantId from (in order):
+     a) req.header('x-tenant-id')
+     b) req.query.tenantId
+     c) default 'DEMO_TENANT'
+   - Always filter queries by tenant_id when the view has tenant_id column.
+5) Endpoints:
+   GET /api/kpi/energy-loss/overview
+   - Query:
+     SELECT day, total_loss_kwh, loss_percent_pct, top_loss_feeders
+     FROM v_kpi_electric_overview_daily
+     WHERE tenant_id = $1
+     ORDER BY day DESC
+     LIMIT 1;
+   - Return JSON exactly:
+     {
+       "totalLossKWh": <number>,
+       "lossPercent": <number>,
+       "topLossFeeders": <array>,
+       "lastUpdated": <ISO string>
+     }
+     - lastUpdated should be day as ISO string, or new Date().toISOString() fallback.
+
+   GET /api/kpi/energy-loss/feeders
+   - Query:
+     SELECT feeder, loss_percent
+     FROM v_kpi_electric_feeder_loss_daily
+     WHERE tenant_id = $1
+     ORDER BY loss_percent DESC
+     LIMIT 10;
+   - Return JSON array exactly:
+     [ { "feeder": "...", "lossPercent": <number> }, ... ]
+
+6) Error handling:
+   - If a view is missing, return 500 with:
+     { "error": "KPI view missing", "details": "<postgres message>" }
+   - Always log the error server-side.
+
+7) After implementing, add quick local sanity logs or comments showing example curl commands.
+
+IMPLEMENTATION NOTES:
+- Convert numeric strings to numbers (parseFloat) before returning.
+- top_loss_feeders is jsonb; ensure it returns as an array (if null, return []).
+- Keep responses stable and dashboard-friendly.
+
+Now implement:
+- index.js changes
+- routes/kpiEnergyLoss.js creation
+- any minimal required imports
+- do not delete existing routes

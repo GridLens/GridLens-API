@@ -9,20 +9,14 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-async function resolveTenantId(req) {
-  if (req.query.tenantId && req.query.tenantId.trim() !== "") {
-    return req.query.tenantId.trim();
+function resolveTenantId(req) {
+  const headerTenant = req.header('x-tenant-id');
+  if (headerTenant && headerTenant.trim() !== "") {
+    return headerTenant.trim();
   }
   
-  try {
-    const result = await pool.query(
-      "SELECT tenant_id FROM meters WHERE tenant_id IS NOT NULL AND tenant_id <> '' LIMIT 1"
-    );
-    if (result.rows.length > 0) {
-      return result.rows[0].tenant_id;
-    }
-  } catch (err) {
-    console.error("Error resolving tenant_id:", err.message);
+  if (req.query.tenantId && req.query.tenantId.trim() !== "") {
+    return req.query.tenantId.trim();
   }
   
   return "DEMO_TENANT";
@@ -30,10 +24,10 @@ async function resolveTenantId(req) {
 
 router.get("/overview", async (req, res) => {
   try {
-    const tenantId = await resolveTenantId(req);
+    const tenantId = resolveTenantId(req);
     
     const result = await pool.query(
-      `SELECT total_loss_kwh, loss_percent_pct, top_loss_feeders, last_updated
+      `SELECT day, total_loss_kwh, loss_percent_pct, top_loss_feeders
        FROM v_kpi_electric_overview_daily
        WHERE tenant_id = $1
        ORDER BY day DESC
@@ -52,46 +46,49 @@ router.get("/overview", async (req, res) => {
     
     const row = result.rows[0];
     res.json({
-      totalLossKWh: Number(row.total_loss_kwh || 0),
-      lossPercent: Number(row.loss_percent_pct || 0),
+      totalLossKWh: parseFloat(row.total_loss_kwh) || 0,
+      lossPercent: parseFloat(row.loss_percent_pct) || 0,
       topLossFeeders: row.top_loss_feeders || [],
-      lastUpdated: row.last_updated || new Date().toISOString()
+      lastUpdated: row.day ? new Date(row.day).toISOString() : new Date().toISOString()
     });
   } catch (err) {
     console.error("KPI overview error:", err.message);
-    res.status(500).json({ error: "KPI query failed", detail: err.message });
+    if (err.message.includes("does not exist")) {
+      return res.status(500).json({ error: "KPI view missing", details: err.message });
+    }
+    res.status(500).json({ error: "KPI query failed", details: err.message });
   }
 });
 
 router.get("/feeders", async (req, res) => {
   try {
-    const tenantId = await resolveTenantId(req);
+    const tenantId = resolveTenantId(req);
     
     const result = await pool.query(
-      `SELECT
-         COALESCE(f.feeder_name, f.feeder_code, fl.feeder_id::text) AS feeder,
-         round((fl.loss_percent * 100)::numeric, 2) AS loss_percent
-       FROM v_kpi_electric_feeder_loss_daily fl
-       LEFT JOIN feeders f ON f.id = fl.feeder_id
-       WHERE fl.tenant_id = $1
-       ORDER BY fl.day DESC, fl.loss_percent DESC
-       LIMIT 50`,
+      `SELECT feeder, loss_percent
+       FROM v_kpi_electric_feeder_loss_daily
+       WHERE tenant_id = $1
+       ORDER BY loss_percent DESC
+       LIMIT 10`,
       [tenantId]
     );
     
     res.json(result.rows.map(r => ({
       feeder: r.feeder,
-      lossPercent: Number(r.loss_percent || 0)
+      lossPercent: parseFloat(r.loss_percent) || 0
     })));
   } catch (err) {
     console.error("KPI feeders error:", err.message);
-    res.status(500).json({ error: "KPI query failed", detail: err.message });
+    if (err.message.includes("does not exist")) {
+      return res.status(500).json({ error: "KPI view missing", details: err.message });
+    }
+    res.status(500).json({ error: "KPI query failed", details: err.message });
   }
 });
 
 router.get("/suspicious-meters", async (req, res) => {
   try {
-    const tenantId = await resolveTenantId(req);
+    const tenantId = resolveTenantId(req);
     
     const result = await pool.query(
       `SELECT meter_id, issue
@@ -108,7 +105,10 @@ router.get("/suspicious-meters", async (req, res) => {
     })));
   } catch (err) {
     console.error("KPI suspicious-meters error:", err.message);
-    res.status(500).json({ error: "KPI query failed", detail: err.message });
+    if (err.message.includes("does not exist")) {
+      return res.status(500).json({ error: "KPI view missing", details: err.message });
+    }
+    res.status(500).json({ error: "KPI query failed", details: err.message });
   }
 });
 
@@ -119,4 +119,10 @@ export default router;
  * curl http://localhost:5000/api/kpi/energy-loss/overview
  * curl http://localhost:5000/api/kpi/energy-loss/feeders
  * curl http://localhost:5000/api/kpi/energy-loss/suspicious-meters
+ * 
+ * With tenant header:
+ * curl -H "x-tenant-id: MY_TENANT" http://localhost:5000/api/kpi/energy-loss/overview
+ * 
+ * With query param:
+ * curl "http://localhost:5000/api/kpi/energy-loss/overview?tenantId=MY_TENANT"
  */
