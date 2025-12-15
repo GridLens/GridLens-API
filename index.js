@@ -16,6 +16,8 @@ import energyLossRouter from "./routes/energyLossRouter.js";
 import kpiEnergyLoss from "./routes/kpiEnergyLoss.js";
 import outagesRouter from "./routes/outagesRouter.js";
 import fieldOpsRouter from "./routes/fieldOpsRouter.js";
+import { buildAndEnqueueReadBatches } from "./services/amiEmulator.js";
+import "./workers/amiWorker.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -144,6 +146,60 @@ app.use('/api/kpi/electric-usage', electricUsageRouter);
 app.use('/api/kpi/energy-loss', kpiEnergyLoss);
 app.use('/api/kpi/outages', outagesRouter);
 app.use('/api/fieldops', fieldOpsRouter);
+
+// -----------------------------
+// AMI Emulator Endpoints
+// -----------------------------
+let amiTimer = null;
+let amiIntervalMinutes = 15;
+
+app.post('/api/ami/publish-once', async (req, res) => {
+  try {
+    const { tenantId = 'DEMO_TENANT', intervalMinutes = 15, batchSize = 100 } = req.body || {};
+    const result = await buildAndEnqueueReadBatches({ tenantId, intervalMinutes, batchSize });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('AMI publish-once error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/ami/start', async (req, res) => {
+  try {
+    if (amiTimer) {
+      return res.json({ ok: true, message: 'AMI emulator already running', intervalMinutes: amiIntervalMinutes });
+    }
+    
+    const { tenantId = 'DEMO_TENANT', intervalMinutes = 15, batchSize = 100 } = req.body || {};
+    amiIntervalMinutes = intervalMinutes;
+    
+    const runBatch = async () => {
+      try {
+        await buildAndEnqueueReadBatches({ tenantId, intervalMinutes, batchSize });
+      } catch (err) {
+        console.error('AMI scheduled batch error:', err.message);
+      }
+    };
+    
+    await runBatch();
+    amiTimer = setInterval(runBatch, intervalMinutes * 60 * 1000);
+    
+    res.json({ ok: true, message: `AMI emulator started (every ${intervalMinutes} minutes)` });
+  } catch (err) {
+    console.error('AMI start error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/ami/stop', (req, res) => {
+  if (amiTimer) {
+    clearInterval(amiTimer);
+    amiTimer = null;
+    res.json({ ok: true, message: 'AMI emulator stopped' });
+  } else {
+    res.json({ ok: true, message: 'AMI emulator was not running' });
+  }
+});
 
 // -----------------------------
 // Fake in-memory data (MVP only)
