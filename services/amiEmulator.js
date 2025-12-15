@@ -23,12 +23,13 @@ function applyNoise(value, noiseFactor = 0.15) {
 async function getActiveEvents(tenantId, feederId, readAt) {
   try {
     const result = await pool.query(
-      `SELECT event_type, severity, starts_at, ends_at 
+      `SELECT event_type, severity, start_at, end_at 
        FROM ami_events 
        WHERE tenant_id = $1 
          AND (feeder_id = $2 OR feeder_id IS NULL)
-         AND starts_at <= $3 
-         AND ends_at > $3
+         AND start_at <= $3 
+         AND end_at > $3
+         AND is_active = true
        ORDER BY created_at DESC`,
       [tenantId, feederId, readAt.toISOString()]
     );
@@ -145,14 +146,14 @@ export async function buildAndEnqueueReadBatches({
 }
 
 export async function createEvent({ tenantId, feederId, eventType, durationMinutes = 60, severity = 0.5 }) {
-  const startsAt = new Date();
-  const endsAt = new Date(startsAt.getTime() + durationMinutes * 60 * 1000);
+  const startAt = new Date();
+  const endAt = new Date(startAt.getTime() + durationMinutes * 60 * 1000);
   
   const result = await pool.query(
-    `INSERT INTO ami_events (tenant_id, feeder_id, event_type, severity, starts_at, ends_at)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     RETURNING id, tenant_id, feeder_id, event_type, severity, starts_at, ends_at`,
-    [tenantId, feederId, eventType, severity, startsAt.toISOString(), endsAt.toISOString()]
+    `INSERT INTO ami_events (tenant_id, feeder_id, event_type, severity, start_at, end_at, is_active)
+     VALUES ($1, $2, $3, $4, $5, $6, true)
+     RETURNING id, tenant_id, feeder_id, event_type, severity, start_at, end_at`,
+    [tenantId, feederId, eventType, severity, startAt.toISOString(), endAt.toISOString()]
   );
   
   return result.rows[0];
@@ -175,10 +176,10 @@ export async function getQueueStatus() {
 export async function getActiveEventsForTenant(tenantId) {
   try {
     const result = await pool.query(
-      `SELECT id, feeder_id, event_type, severity, starts_at, ends_at
+      `SELECT id, feeder_id, event_type, severity, start_at, end_at
        FROM ami_events 
-       WHERE tenant_id = $1 AND ends_at > NOW()
-       ORDER BY starts_at DESC
+       WHERE tenant_id = $1 AND end_at > NOW() AND is_active = true
+       ORDER BY start_at DESC
        LIMIT 20`,
       [tenantId]
     );
