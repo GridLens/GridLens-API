@@ -285,8 +285,8 @@ app.post('/api/ami/event/voltage-sag', async (req, res) => {
 // -----------------------------
 app.post('/api/ami/demo/reset', async (req, res) => {
   try {
-    const { tenantId = 'DEMO_TENANT', clearReads = false } = req.body || {};
-    const result = await resetDemo({ tenantId, clearReads });
+    const { tenantId = 'DEMO_TENANT', clearReads = false, clearEvents = false } = req.body || {};
+    const result = await resetDemo({ tenantId, clearReads, clearEvents });
     res.json({ ok: true, ...result });
   } catch (err) {
     console.error('Demo reset error:', err.message);
@@ -377,7 +377,7 @@ app.get('/api/ami/kpi/quickcheck', async (req, res) => {
   try {
     const tenantId = req.query.tenantId || 'DEMO_TENANT';
     
-    const [lossStats, overviewRows, feederRows, suspiciousRows, fieldopsRows] = await Promise.all([
+    const [lossStats, overviewRows, feederRows, suspiciousRows, fieldopsRows, commsOutageMeters, lowVoltageMeters] = await Promise.all([
       pool.query(
         `SELECT MIN(loss_percent_pct) as min_loss, MAX(loss_percent_pct) as max_loss, AVG(loss_percent_pct) as avg_loss
          FROM v_kpi_electric_overview_daily WHERE tenant_id = $1`,
@@ -403,6 +403,26 @@ app.get('/api/ami/kpi/quickcheck', async (req, res) => {
       pool.query(
         `SELECT * FROM v_kpi_fieldops_daily WHERE tenant_id = $1 ORDER BY day DESC LIMIT 10`,
         [tenantId]
+      ).catch(() => ({ rows: [] })),
+      
+      pool.query(
+        `SELECT meter_id, feeder_id, MAX(read_at) as last_read_at
+         FROM meter_reads_electric 
+         WHERE tenant_id = $1 
+         GROUP BY meter_id, feeder_id
+         HAVING MAX(read_at) < NOW() - INTERVAL '30 minutes'
+         ORDER BY MAX(read_at) ASC
+         LIMIT 10`,
+        [tenantId]
+      ).catch(() => ({ rows: [] })),
+      
+      pool.query(
+        `SELECT meter_id, feeder_id, voltage, read_at
+         FROM meter_reads_electric 
+         WHERE tenant_id = $1 AND voltage < 115
+         ORDER BY read_at DESC
+         LIMIT 10`,
+        [tenantId]
       ).catch(() => ({ rows: [] }))
     ]);
     
@@ -411,7 +431,9 @@ app.get('/api/ami/kpi/quickcheck', async (req, res) => {
       overviewLast5: overviewRows.rows,
       feederLossLast10: feederRows.rows,
       suspiciousMetersLast10: suspiciousRows.rows,
-      fieldopsLast10: fieldopsRows.rows
+      fieldopsLast10: fieldopsRows.rows,
+      commsOutageMetersLast10: commsOutageMeters.rows,
+      lowVoltageMetersLast10: lowVoltageMeters.rows
     });
   } catch (err) {
     console.error('KPI quickcheck error:', err.message);

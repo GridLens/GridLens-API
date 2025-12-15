@@ -81,13 +81,20 @@ function applyEventEffects(reading, events) {
         modified.kwh = modified.kwh * (1 - severity);
         break;
       case 'comms-outage':
-        modified.skip = true;
+        if (Math.random() < severity) {
+          modified.skip = true;
+        }
         break;
       case 'voltage-sag':
+        const minVoltage = 90;
+        const maxVoltage = 114;
+        const voltageRange = maxVoltage - minVoltage;
+        const targetVoltage = maxVoltage - (severity * voltageRange * 0.5);
         if (demoMode) {
-          modified.voltage = 108.5;
+          modified.voltage = parseFloat(targetVoltage.toFixed(1));
         } else {
-          modified.voltage = 105 + Math.random() * 7;
+          const noise = (Math.random() - 0.5) * 5;
+          modified.voltage = parseFloat(Math.max(minVoltage, Math.min(maxVoltage, targetVoltage + noise)).toFixed(1));
         }
         break;
     }
@@ -291,16 +298,25 @@ export async function getLastIngestTimestamp(tenantId) {
   }
 }
 
-export async function resetDemo({ tenantId, clearReads = false }) {
-  let clearedEvents = 0;
+export async function resetDemo({ tenantId, clearReads = false, clearEvents = false }) {
+  let deletedEvents = 0;
+  let deactivatedEvents = 0;
   let clearedReads = 0;
   
   try {
-    const eventsResult = await pool.query(
-      `UPDATE ami_events SET is_active = false WHERE tenant_id = $1 AND is_active = true`,
-      [tenantId]
-    );
-    clearedEvents = eventsResult.rowCount || 0;
+    if (clearEvents) {
+      const eventsResult = await pool.query(
+        `DELETE FROM ami_events WHERE tenant_id = $1`,
+        [tenantId]
+      );
+      deletedEvents = eventsResult.rowCount || 0;
+    } else {
+      const eventsResult = await pool.query(
+        `UPDATE ami_events SET is_active = false WHERE tenant_id = $1 AND is_active = true`,
+        [tenantId]
+      );
+      deactivatedEvents = eventsResult.rowCount || 0;
+    }
     
     if (clearReads) {
       const readsResult = await pool.query(
@@ -313,11 +329,14 @@ export async function resetDemo({ tenantId, clearReads = false }) {
     lastEventInjected = null;
     lastPublishAt = null;
     
-    if (demoMode) {
-      console.log(`[DEMO MODE] Demo reset complete for ${tenantId}: ${clearedEvents} events deactivated, ${clearedReads} reads cleared`);
-    }
+    console.log(`[DEMO RESET] ${tenantId}: ${clearEvents ? deletedEvents + ' events deleted' : deactivatedEvents + ' events deactivated'}, ${clearedReads} reads cleared`);
     
-    return { clearedEvents, clearedReads, tenantId };
+    return { 
+      deletedEvents: clearEvents ? deletedEvents : 0,
+      deactivatedEvents: clearEvents ? 0 : deactivatedEvents,
+      clearedReads, 
+      tenantId 
+    };
   } catch (err) {
     console.error("Demo reset error:", err.message);
     throw err;
