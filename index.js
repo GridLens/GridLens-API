@@ -376,8 +376,13 @@ app.get('/api/ami/status', async (req, res) => {
 app.get('/api/ami/kpi/quickcheck', async (req, res) => {
   try {
     const tenantId = req.query.tenantId || 'DEMO_TENANT';
+    const intervalMinutes = parseInt(req.query.intervalMinutes) || 15;
     
-    const [lossStats, overviewRows, feederRows, suspiciousRows, fieldopsRows, commsOutageMeters, lowVoltageMeters] = await Promise.all([
+    const [
+      lossStats, overviewRows, feederRows, suspiciousRows, fieldopsRows, 
+      commsOutageMeters, lowVoltageMeters,
+      reportingStats, staleBuckets, voltageStats, lowVoltageList, highVoltageList, exceptionFeeders
+    ] = await Promise.all([
       pool.query(
         `SELECT MIN(loss_percent_pct) as min_loss, MAX(loss_percent_pct) as max_loss, AVG(loss_percent_pct) as avg_loss
          FROM v_kpi_electric_overview_daily WHERE tenant_id = $1`,
@@ -423,8 +428,115 @@ app.get('/api/ami/kpi/quickcheck', async (req, res) => {
          ORDER BY read_at DESC
          LIMIT 10`,
         [tenantId]
+      ).catch(() => ({ rows: [] })),
+      
+      pool.query(
+        `WITH latest_read AS (
+          SELECT MAX(read_at) as max_read_at FROM meter_reads_electric WHERE tenant_id = $1
+        ),
+        expected AS (
+          SELECT COUNT(DISTINCT meter_id) as expected_meters FROM meter_reads_electric WHERE tenant_id = $1
+        ),
+        recent AS (
+          SELECT COUNT(DISTINCT meter_id) as recent_meters 
+          FROM meter_reads_electric m, latest_read lr
+          WHERE m.tenant_id = $1 AND m.read_at >= lr.max_read_at - ($2 || ' minutes')::interval
+        )
+        SELECT 
+          r.recent_meters as distinct_meters_last_interval,
+          e.expected_meters,
+          lr.max_read_at as latest_read_at,
+          CASE WHEN e.expected_meters > 0 
+            THEN ROUND((r.recent_meters::numeric / e.expected_meters) * 100, 2)
+            ELSE NULL 
+          END as read_success_rate_pct
+        FROM recent r, expected e, latest_read lr`,
+        [tenantId, intervalMinutes]
+      ).catch(() => ({ rows: [{}] })),
+      
+      pool.query(
+        `WITH latest AS (
+          SELECT meter_id, MAX(read_at) as last_read_at 
+          FROM meter_reads_electric WHERE tenant_id = $1 GROUP BY meter_id
+        )
+        SELECT 
+          COUNT(*) FILTER (WHERE last_read_at < NOW() - INTERVAL '15 minutes') as stale_over_15m,
+          COUNT(*) FILTER (WHERE last_read_at < NOW() - INTERVAL '1 hour') as stale_over_1h,
+          COUNT(*) FILTER (WHERE last_read_at < NOW() - INTERVAL '6 hours') as stale_over_6h,
+          COUNT(*) FILTER (WHERE last_read_at < NOW() - INTERVAL '24 hours') as stale_over_24h
+        FROM latest`,
+        [tenantId]
+      ).catch(() => ({ rows: [{ stale_over_15m: 0, stale_over_1h: 0, stale_over_6h: 0, stale_over_24h: 0 }] })),
+      
+      pool.query(
+        `WITH recent AS (
+          SELECT voltage FROM meter_reads_electric 
+          WHERE tenant_id = $1 AND read_at >= NOW() - INTERVAL '1 hour'
+        ),
+        total AS (SELECT COUNT(*) as cnt FROM recent),
+        low AS (SELECT COUNT(*) as cnt FROM recent WHERE voltage < 114),
+        high AS (SELECT COUNT(*) as cnt FROM recent WHERE voltage > 126)
+        SELECT 
+          CASE WHEN t.cnt > 0 THEN ROUND((l.cnt::numeric / t.cnt) * 100, 2) ELSE 0 END as low_voltage_pct,
+          CASE WHEN t.cnt > 0 THEN ROUND((h.cnt::numeric / t.cnt) * 100, 2) ELSE 0 END as high_voltage_pct,
+          t.cnt as total_recent_reads
+        FROM total t, low l, high h`,
+        [tenantId]
+      ).catch(() => ({ rows: [{ low_voltage_pct: 0, high_voltage_pct: 0, total_recent_reads: 0 }] })),
+      
+      pool.query(
+        `SELECT meter_id, feeder_id, voltage, read_at
+         FROM meter_reads_electric 
+         WHERE tenant_id = $1 AND voltage < 114
+         ORDER BY read_at DESC
+         LIMIT 10`,
+        [tenantId]
+      ).catch(() => ({ rows: [] })),
+      
+      pool.query(
+        `SELECT meter_id, feeder_id, voltage, read_at
+         FROM meter_reads_electric 
+         WHERE tenant_id = $1 AND voltage > 126
+         ORDER BY read_at DESC
+         LIMIT 10`,
+        [tenantId]
+      ).catch(() => ({ rows: [] })),
+      
+      pool.query(
+        `WITH latest AS (
+          SELECT meter_id, feeder_id, MAX(read_at) as last_read_at 
+          FROM meter_reads_electric WHERE tenant_id = $1 GROUP BY meter_id, feeder_id
+        ),
+        stale_by_feeder AS (
+          SELECT feeder_id, COUNT(*) as stale_meters
+          FROM latest WHERE last_read_at < NOW() - INTERVAL '15 minutes'
+          GROUP BY feeder_id
+        ),
+        voltage_by_feeder AS (
+          SELECT feeder_id, 
+            COUNT(*) FILTER (WHERE voltage < 114) as low_voltage_reads,
+            COUNT(*) FILTER (WHERE voltage > 126) as high_voltage_reads
+          FROM meter_reads_electric 
+          WHERE tenant_id = $1 AND read_at >= NOW() - INTERVAL '1 hour'
+          GROUP BY feeder_id
+        )
+        SELECT 
+          COALESCE(s.feeder_id, v.feeder_id) as feeder_id,
+          COALESCE(s.stale_meters, 0) as stale_meters_over_15m,
+          COALESCE(v.low_voltage_reads, 0) as low_voltage_reads,
+          COALESCE(v.high_voltage_reads, 0) as high_voltage_reads,
+          (COALESCE(s.stale_meters, 0) * 2 + COALESCE(v.low_voltage_reads, 0) + COALESCE(v.high_voltage_reads, 0)) as exception_score
+        FROM stale_by_feeder s
+        FULL OUTER JOIN voltage_by_feeder v ON s.feeder_id = v.feeder_id
+        ORDER BY exception_score DESC
+        LIMIT 10`,
+        [tenantId]
       ).catch(() => ({ rows: [] }))
     ]);
+    
+    const reportingRow = reportingStats.rows[0] || {};
+    const staleRow = staleBuckets.rows[0] || {};
+    const voltageRow = voltageStats.rows[0] || {};
     
     res.json({
       lossStats: lossStats.rows[0] || { min_loss: 0, max_loss: 0, avg_loss: 0 },
@@ -433,7 +545,38 @@ app.get('/api/ami/kpi/quickcheck', async (req, res) => {
       suspiciousMetersLast10: suspiciousRows.rows,
       fieldopsLast10: fieldopsRows.rows,
       commsOutageMetersLast10: commsOutageMeters.rows,
-      lowVoltageMetersLast10: lowVoltageMeters.rows
+      lowVoltageMetersLast10: lowVoltageMeters.rows,
+      
+      reportingSummary: {
+        distinctMetersSeenLastInterval: parseInt(reportingRow.distinct_meters_last_interval) || 0,
+        expectedMeters: parseInt(reportingRow.expected_meters) || 0,
+        readSuccessRatePct: parseFloat(reportingRow.read_success_rate_pct) || null,
+        intervalMinutes,
+        latestReadAt: reportingRow.latest_read_at || null
+      },
+      
+      staleMetersBuckets: {
+        staleOver15m: parseInt(staleRow.stale_over_15m) || 0,
+        staleOver1h: parseInt(staleRow.stale_over_1h) || 0,
+        staleOver6h: parseInt(staleRow.stale_over_6h) || 0,
+        staleOver24h: parseInt(staleRow.stale_over_24h) || 0
+      },
+      
+      voltageCompliance: {
+        lowVoltageReadsPct: parseFloat(voltageRow.low_voltage_pct) || 0,
+        highVoltageReadsPct: parseFloat(voltageRow.high_voltage_pct) || 0,
+        totalRecentReads: parseInt(voltageRow.total_recent_reads) || 0,
+        lowVoltageMetersLast10: lowVoltageList.rows,
+        highVoltageMetersLast10: highVoltageList.rows
+      },
+      
+      topExceptionFeeders: exceptionFeeders.rows.map(r => ({
+        feederId: r.feeder_id,
+        staleMetersOver15m: parseInt(r.stale_meters_over_15m) || 0,
+        lowVoltageReads: parseInt(r.low_voltage_reads) || 0,
+        highVoltageReads: parseInt(r.high_voltage_reads) || 0,
+        exceptionScore: parseInt(r.exception_score) || 0
+      }))
     });
   } catch (err) {
     console.error('KPI quickcheck error:', err.message);

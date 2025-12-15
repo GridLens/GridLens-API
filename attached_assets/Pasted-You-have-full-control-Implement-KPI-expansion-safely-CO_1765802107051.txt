@@ -1,0 +1,117 @@
+You have full control. Implement KPI expansion safely.
+
+CONTEXT:
+- 25,000-meter scale mode is working.
+- Existing endpoints must NOT break.
+- Existing KPI views must remain unchanged.
+- We will ONLY extend /api/ami/kpi/quickcheck response with additional KPI sections.
+- Data source is public.meter_reads_electric (vendor-neutral).
+
+GOAL:
+Add 4 new executive KPIs:
+1) Read success rate (meter reporting rate)
+2) Stale meters by age bucket (15m / 1h / 6h / 24h)
+3) Voltage compliance (% <114V and % >126V)
+4) Top 10 exception feeders (missing reads + low voltage combined)
+
+RULES:
+- Additive only: do not rename existing JSON fields.
+- No schema changes unless absolutely required.
+- Use efficient SQL (CTEs ok). Keep queries fast for 25k meters.
+- If jq is missing, do NOT install; use python3 -m json.tool for formatting.
+- Provide proof by running curl for quickcheck and showing the new fields present.
+
+IMPLEMENTATION PLAN:
+
+A) Extend quickcheck output in index.js
+In GET /api/ami/kpi/quickcheck:
+- Keep existing fields as-is:
+  lossStats, overviewLast5, feederLossLast10, suspiciousMetersLast10, fieldopsLast10, activeEvents
+- Add new fields:
+
+1) reportingSummary
+Return:
+{
+  "distinctMetersSeenLastInterval": <int>,
+  "expectedMeters": <int or null>,
+  "readSuccessRatePct": <numeric or null>,
+  "intervalMinutes": <int>,
+  "latestReadAt": <timestamp>
+}
+
+Logic:
+- expectedMeters should be computed as COUNT(DISTINCT meter_id) for tenant across ALL history (or last 7 days) from meter_reads_electric.
+- distinctMetersSeenLastInterval should be COUNT(DISTINCT meter_id) within the most recent interval window.
+- intervalMinutes: infer from query param (default 15) or compute from data if missing.
+- readSuccessRatePct = distinctMetersSeenLastInterval / expectedMeters * 100 (guard divide-by-zero).
+
+2) staleMetersBuckets
+Return counts of meters whose latest read is older than:
+- 15 minutes
+- 60 minutes
+- 360 minutes
+- 1440 minutes
+Example:
+{
+  "staleOver15m": <int>,
+  "staleOver1h": <int>,
+  "staleOver6h": <int>,
+  "staleOver24h": <int>
+}
+
+SQL approach:
+- Build a latest-per-meter CTE:
+  latest AS (SELECT meter_id, MAX(read_at) last_read_at, MAX(feeder_id) feeder_id FROM meter_reads_electric WHERE tenant_id=$1 GROUP BY meter_id)
+- Compare last_read_at to NOW().
+
+3) voltageCompliance
+Return:
+{
+  "lowVoltageReadsPct": <numeric>,
+  "highVoltageReadsPct": <numeric>,
+  "lowVoltageMetersLast10": [ { meter_id, feeder_id, read_at, voltage }, ... ],
+  "highVoltageMetersLast10": [ { meter_id, feeder_id, read_at, voltage }, ... ]
+}
+
+Logic:
+- Use recent window (e.g., last 1 hour) for % calculations:
+  lowVoltageReadsPct = percent of reads with voltage < 114
+  highVoltageReadsPct = percent of reads with voltage > 126
+- Last10 lists pulled from most recent reads meeting criteria.
+
+4) topExceptionFeeders
+Return top 10 feeders ranked by a combined exception score:
+- exceptionScore = (staleMetersOver15m * 2) + (lowVoltageReadsCount) + (highVoltageReadsCount)
+Return rows:
+[
+  { feeder_id, staleMetersOver15m, lowVoltageReads, highVoltageReads, exceptionScore },
+  ...
+]
+
+SQL approach:
+- latest-per-meter CTE (for stale meters by feeder_id)
+- recent reads CTE for voltage exceptions by feeder_id (last 1 hour)
+- LEFT JOIN and compute score, ORDER BY score DESC LIMIT 10
+
+B) Ensure performance
+- Add indexes ONLY if missing and only if safe:
+  CREATE INDEX IF NOT EXISTS idx_mre_tenant_readat ON public.meter_reads_electric(tenant_id, read_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_mre_tenant_meter ON public.meter_reads_electric(tenant_id, meter_id);
+  CREATE INDEX IF NOT EXISTS idx_mre_tenant_feeder ON public.meter_reads_electric(tenant_id, feeder_id);
+
+C) Proof (must run and paste outputs)
+After coding:
+1) Publish a small batch (or reuse existing data) then run:
+curl -s "http://localhost:5000/api/ami/kpi/quickcheck?tenantId=DEMO_TENANT" | python3 -m json.tool
+2) Confirm the new keys exist:
+- reportingSummary
+- staleMetersBuckets
+- voltageCompliance
+- topExceptionFeeders
+
+DELIVERABLES:
+- Modified index.js (quickcheck enhanced)
+- Any optional SQL migration file for indexes (if needed)
+- Final curl output excerpt showing new fields
+
+Proceed now and do not stop until proof is shown.
