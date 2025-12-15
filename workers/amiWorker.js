@@ -13,7 +13,7 @@ const worker = connection ? new Worker(
 
     if (!readings || readings.length === 0) {
       console.log("[AMI Worker] Empty batch received, skipping");
-      return { inserted: 0, updated: 0 };
+      return { inserted: 0 };
     }
 
     const values = [];
@@ -22,38 +22,30 @@ const worker = connection ? new Worker(
 
     for (const r of readings) {
       values.push(
-        `($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`
+        `($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`
       );
       params.push(
         r.tenant_id,
         r.meter_id,
         r.feeder_id,
         r.kwh,
-        r.kw_demand,
         r.voltage,
-        r.read_at,
-        r.quality_flags || 'NORMAL',
-        r.updated_at || new Date().toISOString()
+        r.read_at
       );
     }
 
     const sql = `
       INSERT INTO meter_reads_electric 
-        (tenant_id, meter_id, feeder_id, kwh, kw_demand, voltage, read_at, quality_flags, updated_at)
+        (tenant_id, meter_id, feeder_id, kwh, voltage, read_at)
       VALUES ${values.join(", ")}
-      ON CONFLICT (tenant_id, meter_id, read_at) 
-      DO UPDATE SET 
-        kwh = EXCLUDED.kwh,
-        voltage = EXCLUDED.voltage,
-        quality_flags = EXCLUDED.quality_flags,
-        updated_at = EXCLUDED.updated_at
+      ON CONFLICT DO NOTHING
     `;
 
     try {
       const result = await pool.query(sql, params);
-      const affectedCount = result.rowCount || 0;
-      console.log(`[AMI Worker] Feeder ${feederId}: processed ${affectedCount}/${readings.length} rows`);
-      return { processed: affectedCount };
+      const insertedCount = result.rowCount || 0;
+      console.log(`[AMI Worker] Feeder ${feederId}: inserted ${insertedCount}/${readings.length} rows`);
+      return { inserted: insertedCount };
     } catch (err) {
       console.error(`[AMI Worker] Insert error for feeder ${feederId}:`, err.message);
       throw err;

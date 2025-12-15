@@ -1,0 +1,134 @@
+You are continuing GridLens Phase 3: AMI Emulator Pilot Hardening.
+
+IMPORTANT CONTEXT:
+- Azure PostgreSQL is the source of truth (NOT Replit DB).
+- Table `public.meter_reads_electric` already exists in Azure.
+- KPI views already exist and are working:
+  - v_kpi_electric_overview_daily
+  - v_kpi_electric_feeder_loss_daily
+  - v_kpi_suspicious_meters_daily
+  - v_kpi_fieldops_daily
+- DO NOT recreate or rename meter_reads_electric.
+- DO NOT change existing constraints.
+- Only ADD safe columns and event logging.
+
+OBJECTIVE:
+Harden the AMI emulator so utilities see realistic, explainable KPI movement
+caused by simulated grid events (theft, voltage, comms).
+
+---
+
+STEP 1 — SAFE DATABASE MIGRATION (AZURE POSTGRES)
+
+Create a new table for AMI events ONLY.
+Do NOT assume meter_reads_electric constraints.
+
+Generate SQL file: sql/phase3_ami_events.sql with:
+
+1) CREATE TABLE IF NOT EXISTS public.ami_events (
+   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   tenant_id TEXT NOT NULL,
+   feeder_id TEXT,
+   meter_id TEXT,
+   event_type TEXT NOT NULL,
+   severity NUMERIC,
+   starts_at TIMESTAMPTZ NOT NULL,
+   ends_at TIMESTAMPTZ NOT NULL,
+   created_at TIMESTAMPTZ DEFAULT now()
+);
+
+2) CREATE INDEX IF NOT EXISTS idx_ami_events_tenant_time
+   ON public.ami_events (tenant_id, starts_at, ends_at);
+
+DO NOT add foreign keys.
+
+---
+
+STEP 2 — AMI EMULATOR LOGIC (NO DB ASSUMPTIONS)
+
+Update services/amiEmulator.js so that:
+
+- Synthetic reads are generated feeder-aware
+- Each read includes:
+  - tenant_id
+  - meter_id
+  - feeder_id
+  - read_at
+  - kwh
+  - voltage
+
+When an event is active:
+- Theft → reduce kWh by severity %
+- Voltage sag → drop voltage to 108–114
+- Comms outage → skip insert entirely
+
+Events are READ from ami_events table by time window.
+
+---
+
+STEP 3 — WORKER UPSERT (SAFE MODE)
+
+Update workers/amiWorker.js:
+
+- INSERT into meter_reads_electric
+- If a UNIQUE constraint exists, use ON CONFLICT DO NOTHING
+- DO NOT update existing rows
+- No assumptions about primary keys
+
+---
+
+STEP 4 — API ENDPOINTS (PILOT SAFE)
+
+Add these endpoints in index.js:
+
+POST /api/ami/event/theft
+POST /api/ami/event/voltage-sag
+POST /api/ami/event/comms-outage
+
+Each endpoint:
+- Inserts a row into ami_events
+- Requires Authorization header
+- Accepts:
+  {
+    tenantId,
+    feederId,
+    durationMinutes,
+    severity
+  }
+
+Add GET /api/ami/kpi/quickcheck (NO AUTH):
+- Returns:
+  - Last 5 rows from v_kpi_electric_overview_daily
+  - Current loss %
+  - Active events
+
+---
+
+STEP 5 — PILOT VALIDATION COMMANDS
+
+Provide these commands after implementation:
+
+1) Publish reads:
+curl -X POST $BASE_URL/api/ami/publish-once \
+-H "Authorization: Bearer $GRIDLENS_API_KEY" \
+-H "Content-Type: application/json" \
+-d '{"tenantId":"DEMO_TENANT","intervalMinutes":15,"batchSize":50}'
+
+2) Trigger theft:
+curl -X POST $BASE_URL/api/ami/event/theft \
+-H "Authorization: Bearer $GRIDLENS_API_KEY" \
+-H "Content-Type: application/json" \
+-d '{"tenantId":"DEMO_TENANT","feederId":"FEEDER_7","durationMinutes":60,"severity":0.7}'
+
+3) Verify KPIs:
+curl "$BASE_URL/api/ami/kpi/quickcheck?tenantId=DEMO_TENANT"
+
+---
+
+FINAL REQUIREMENTS:
+- Do NOT touch KPI views
+- Do NOT touch Azure schema except ami_events
+- Ensure KPIs move within 1–2 publish cycles
+- Ensure demo is explainable to executives
+
+Proceed with full implementation.

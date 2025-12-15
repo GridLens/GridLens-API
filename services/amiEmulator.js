@@ -20,20 +20,21 @@ function applyNoise(value, noiseFactor = 0.15) {
   return Math.max(0, value + noise);
 }
 
-async function getActiveEvents(tenantId, feederId) {
+async function getActiveEvents(tenantId, feederId, readAt) {
   try {
     const result = await pool.query(
-      `SELECT event_type, severity, start_at, end_at 
+      `SELECT event_type, severity, starts_at, ends_at 
        FROM ami_events 
        WHERE tenant_id = $1 
-         AND feeder_id = $2 
-         AND is_active = true 
-         AND end_at > NOW()
-       ORDER BY start_at DESC`,
-      [tenantId, feederId]
+         AND (feeder_id = $2 OR feeder_id IS NULL)
+         AND starts_at <= $3 
+         AND ends_at > $3
+       ORDER BY created_at DESC`,
+      [tenantId, feederId, readAt.toISOString()]
     );
     return result.rows;
   } catch (err) {
+    console.log("No ami_events table or query error:", err.message);
     return [];
   }
 }
@@ -46,15 +47,13 @@ function applyEventEffects(reading, events) {
     
     switch (event.event_type) {
       case 'theft':
-        modified.kwh = modified.kwh * (1 - severity * 0.8);
-        modified.quality_flags = 'THEFT_SUSPECTED';
+        modified.kwh = modified.kwh * (1 - severity);
         break;
       case 'comms-outage':
         modified.skip = true;
         break;
       case 'voltage-sag':
-        modified.voltage = modified.voltage * (1 - severity * 0.2);
-        modified.quality_flags = 'VOLTAGE_SAG';
+        modified.voltage = 108 + Math.random() * 6;
         break;
     }
   }
@@ -62,35 +61,29 @@ function applyEventEffects(reading, events) {
   return modified;
 }
 
-function generateSyntheticReading(meterId, feederId, tenantId, readAt, lossFactor = 0.02) {
+function generateSyntheticReading(meterId, feederId, tenantId, readAt) {
   const hour = readAt.getHours();
   const baseKwh = getBaselineKwh(hour);
-  const feederLoss = 1 + lossFactor;
-  const kwh = applyNoise(baseKwh * feederLoss, 0.15);
+  const kwh = applyNoise(baseKwh, 0.15);
   const voltage = applyNoise(120, 0.02);
-  const kwDemand = applyNoise(kwh / 4, 0.1);
   
   return {
     tenant_id: tenantId,
     meter_id: meterId,
     feeder_id: feederId,
     kwh: parseFloat(kwh.toFixed(2)),
-    kw_demand: parseFloat(kwDemand.toFixed(2)),
     voltage: parseFloat(voltage.toFixed(1)),
-    read_at: readAt.toISOString(),
-    quality_flags: 'NORMAL',
-    updated_at: new Date().toISOString()
+    read_at: readAt.toISOString()
   };
 }
 
 export async function buildAndEnqueueReadBatches({ 
   tenantId = "DEMO_TENANT", 
   intervalMinutes = 15, 
-  batchSize = 100,
-  seed = null 
+  batchSize = 100
 }) {
   const result = await pool.query(
-    `SELECT m.id AS meter_id, m.feeder_id, f.loss_factor
+    `SELECT m.id AS meter_id, m.feeder_id
      FROM meters m 
      JOIN feeders f ON f.id = m.feeder_id 
      WHERE m.tenant_id = $1 OR $1 = 'DEMO_TENANT'
@@ -104,13 +97,10 @@ export async function buildAndEnqueueReadBatches({
   }
 
   const metersByFeeder = {};
-  const feederLossFactors = {};
-  
   for (const row of result.rows) {
     const fid = row.feeder_id;
     if (!metersByFeeder[fid]) {
       metersByFeeder[fid] = [];
-      feederLossFactors[fid] = parseFloat(row.loss_factor) || 0.02;
     }
     metersByFeeder[fid].push(row.meter_id);
   }
@@ -120,15 +110,14 @@ export async function buildAndEnqueueReadBatches({
   let batchCount = 0;
 
   for (const [feederId, meterIds] of Object.entries(metersByFeeder)) {
-    const events = await getActiveEvents(tenantId, feederId);
-    const lossFactor = feederLossFactors[feederId];
+    const events = await getActiveEvents(tenantId, feederId, readAt);
     
     for (let i = 0; i < meterIds.length; i += batchSize) {
       const batchMeters = meterIds.slice(i, i + batchSize);
       
       const readings = [];
       for (const meterId of batchMeters) {
-        let reading = generateSyntheticReading(meterId, feederId, tenantId, readAt, lossFactor);
+        let reading = generateSyntheticReading(meterId, feederId, tenantId, readAt);
         reading = applyEventEffects(reading, events);
         
         if (!reading.skip) {
@@ -156,14 +145,14 @@ export async function buildAndEnqueueReadBatches({
 }
 
 export async function createEvent({ tenantId, feederId, eventType, durationMinutes = 60, severity = 0.5 }) {
-  const startAt = new Date();
-  const endAt = new Date(startAt.getTime() + durationMinutes * 60 * 1000);
+  const startsAt = new Date();
+  const endsAt = new Date(startsAt.getTime() + durationMinutes * 60 * 1000);
   
   const result = await pool.query(
-    `INSERT INTO ami_events (tenant_id, feeder_id, event_type, severity, start_at, end_at, is_active)
-     VALUES ($1, $2, $3, $4, $5, $6, true)
-     RETURNING id, tenant_id, feeder_id, event_type, severity, start_at, end_at`,
-    [tenantId, feederId, eventType, severity, startAt.toISOString(), endAt.toISOString()]
+    `INSERT INTO ami_events (tenant_id, feeder_id, event_type, severity, starts_at, ends_at)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, tenant_id, feeder_id, event_type, severity, starts_at, ends_at`,
+    [tenantId, feederId, eventType, severity, startsAt.toISOString(), endsAt.toISOString()]
   );
   
   return result.rows[0];
@@ -177,7 +166,6 @@ export async function getQueueStatus() {
       amiQueue.getCompletedCount(),
       amiQueue.getFailedCount()
     ]);
-    
     return { waiting, active, completed, failed };
   } catch (err) {
     return { error: err.message };
@@ -187,10 +175,10 @@ export async function getQueueStatus() {
 export async function getActiveEventsForTenant(tenantId) {
   try {
     const result = await pool.query(
-      `SELECT id, feeder_id, event_type, severity, start_at, end_at
+      `SELECT id, feeder_id, event_type, severity, starts_at, ends_at
        FROM ami_events 
-       WHERE tenant_id = $1 AND is_active = true AND end_at > NOW()
-       ORDER BY start_at DESC
+       WHERE tenant_id = $1 AND ends_at > NOW()
+       ORDER BY starts_at DESC
        LIMIT 20`,
       [tenantId]
     );
