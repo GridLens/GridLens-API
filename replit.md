@@ -61,6 +61,26 @@ gridlens-api/
 - `GET /api/fieldops/queue` - Work order queue
 - `GET /api/fieldops/work-order/:id` - Individual work order detail
 
+#### Scale Mode (25K Meter Simulation)
+- `POST /api/ami/publish-once` - Enhanced with scale mode params:
+  - `meterCount`: Number of synthetic meters (max 25,000)
+  - `feederCount`: Number of feeders (10-40)
+  - `dryRun`: Returns estimates without enqueuing jobs
+  - `batchSize`: Meters per job (max 500)
+- `GET /api/ami/scale/status` - Scale mode monitoring:
+  - `totalDistinctMeters`: Unique meters in database
+  - `totalReads`: Total readings ingested
+  - `latestReadAt`: Last read timestamp
+  - `queue`: Waiting/active/delayed/completed job counts
+
+### Scale Mode Safety Limits
+- Max batch size: 500 meters per job
+- Max meter count: 25,000 per publish
+- Max jobs per publish: 200
+- Max queue depth: 500 (returns 429 if exceeded)
+- Feeder range: 10-40 feeders
+- Worker concurrency: 8 parallel jobs
+
 #### Legacy Endpoints
 - **Health Check**: `GET /health`
 - **Meter Management**: `GET /meters`, `GET /meter/:id`, `PATCH /meter/:id`
