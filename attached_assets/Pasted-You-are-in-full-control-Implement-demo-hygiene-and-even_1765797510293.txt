@@ -1,0 +1,125 @@
+You are in full control. Implement demo hygiene and event completeness.
+
+OBJECTIVE:
+Prepare GridLens for executive / utility demos with:
+1) Clean reset capability
+2) Core AMI event types
+3) Deterministic, operator-controlled demo flow
+
+---
+
+STEP 1 — DEMO RESET (MANDATORY)
+
+Add endpoint:
+POST /api/ami/demo/reset
+
+Behavior:
+- Delete or deactivate ALL ami_events for tenantId
+- Optionally clear meter_reads_electric for tenantId (flag: clearReads=true|false)
+- Reset any in-memory emulator state
+- Return counts:
+  {
+    clearedEvents,
+    clearedReads,
+    tenantId
+  }
+
+Default:
+- clearReads=false (keep historical baseline unless explicitly requested)
+
+This allows a “clean slate” demo.
+
+---
+
+STEP 2 — ADD CORE AMI EVENT TYPES (UTILITY STANDARD)
+
+Implement these additional event endpoints:
+
+POST /api/ami/event/comms-outage
+POST /api/ami/event/voltage-sag
+
+Event definitions:
+
+A) comms-outage
+- Applies at feeder or meter level
+- Effect:
+  - Skip generating reads for affected meters
+  - Simulates missing interval data
+- KPIs impacted:
+  - Suspicious meters
+  - FieldOps tasks
+  - Drop in reads_count (if tracked)
+
+B) voltage-sag
+- Applies at feeder or meter level
+- Effect:
+  - Generate voltage values between 105–112
+- KPIs impacted:
+  - Power quality tasks
+  - Suspicious meters
+  - FieldOps
+
+All events must:
+- Be time-bound (start_at, end_at)
+- Respect tenantId
+- Stack safely (but demo usually uses one at a time)
+
+---
+
+STEP 3 — DEMO MODE / RUNBOOK SUPPORT
+
+Add a lightweight demo mode flag:
+- demoMode=true
+
+When demoMode=true:
+- Log every injected event clearly
+- Prevent overlapping conflicting events on same feeder
+- Prefer deterministic behavior over randomness
+
+Expose:
+GET /api/ami/demo/status
+
+Returns:
+- activeEvents
+- demoMode
+- lastPublishAt
+- lastEventInjected
+
+---
+
+STEP 4 — KPI VALIDATION AFTER EVENTS
+
+After each event + publish cycle:
+- Automatically validate that at least one KPI moved:
+  - suspiciousMeters count
+  - fieldops open_tasks
+  - feeder ranking
+- If no KPI moves, log a warning explaining why (don’t fail silently)
+
+---
+
+STEP 5 — PROVIDE OPERATOR COMMANDS
+
+Output example commands:
+
+1) Reset demo:
+curl -X POST /api/ami/demo/reset \
+  -H "Authorization: Bearer $GRIDLENS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"tenantId":"DEMO_TENANT","clearReads":false}'
+
+2) Baseline publish:
+POST /api/ami/publish-once
+
+3) Trigger comms outage:
+POST /api/ami/event/comms-outage
+
+4) Trigger voltage sag:
+POST /api/ami/event/voltage-sag
+
+5) Check demo status:
+GET /api/ami/demo/status
+
+FINAL REQUIREMENT:
+This must support a clean, repeatable, board-safe demo flow.
+Proceed and implement now.

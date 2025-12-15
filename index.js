@@ -16,7 +16,18 @@ import energyLossRouter from "./routes/energyLossRouter.js";
 import kpiEnergyLoss from "./routes/kpiEnergyLoss.js";
 import outagesRouter from "./routes/outagesRouter.js";
 import fieldOpsRouter from "./routes/fieldOpsRouter.js";
-import { buildAndEnqueueReadBatches, createEvent, getQueueStatus, getActiveEventsForTenant, getLastIngestTimestamp } from "./services/amiEmulator.js";
+import { 
+  buildAndEnqueueReadBatches, 
+  createEvent, 
+  getQueueStatus, 
+  getActiveEventsForTenant, 
+  getLastIngestTimestamp,
+  resetDemo,
+  validateKpiMovement,
+  getDemoStatus,
+  setDemoMode,
+  getDemoMode
+} from "./services/amiEmulator.js";
 import { pool } from "./db.js";
 import "./workers/amiWorker.js";
 
@@ -237,6 +248,61 @@ app.post('/api/ami/event/voltage-sag', async (req, res) => {
     res.json({ ok: true, event });
   } catch (err) {
     console.error('Event voltage-sag error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// -----------------------------
+// Demo Mode Endpoints
+// -----------------------------
+app.post('/api/ami/demo/reset', async (req, res) => {
+  try {
+    const { tenantId = 'DEMO_TENANT', clearReads = false } = req.body || {};
+    const result = await resetDemo({ tenantId, clearReads });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('Demo reset error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/ami/demo/status', async (req, res) => {
+  try {
+    const tenantId = req.query.tenantId || 'DEMO_TENANT';
+    const demoStatus = getDemoStatus();
+    const activeEvents = await getActiveEventsForTenant(tenantId);
+    
+    res.json({
+      demoMode: demoStatus.demoMode,
+      lastPublishAt: demoStatus.lastPublishAt,
+      lastEventInjected: demoStatus.lastEventInjected,
+      activeEvents,
+      tenantId
+    });
+  } catch (err) {
+    console.error('Demo status error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/ami/demo/mode', async (req, res) => {
+  try {
+    const { enabled = true } = req.body || {};
+    const demoMode = setDemoMode(enabled);
+    res.json({ ok: true, demoMode });
+  } catch (err) {
+    console.error('Demo mode toggle error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/ami/demo/validate-kpi', async (req, res) => {
+  try {
+    const tenantId = req.query.tenantId || 'DEMO_TENANT';
+    const result = await validateKpiMovement(tenantId);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('KPI validation error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
