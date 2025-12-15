@@ -83,11 +83,11 @@ export async function buildAndEnqueueReadBatches({
   batchSize = 100
 }) {
   const result = await pool.query(
-    `SELECT m.id AS meter_id, m.feeder_id
+    `SELECT m.meter_id, m.feeder_id
      FROM meters m 
      JOIN feeders f ON f.id = m.feeder_id 
      WHERE m.tenant_id = $1 OR $1 = 'DEMO_TENANT'
-     ORDER BY m.feeder_id, m.id`,
+     ORDER BY m.feeder_id, m.meter_id`,
     [tenantId]
   );
 
