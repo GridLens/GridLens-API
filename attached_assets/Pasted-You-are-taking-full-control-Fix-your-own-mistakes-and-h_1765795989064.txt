@@ -1,0 +1,141 @@
+You are taking full control. Fix your own mistakes and harden the system end-to-end.
+
+A) Confirm we are hitting Azure Postgres (NOT localhost)
+
+In the Replit Shell, print DATABASE_URL.
+
+Determine whether it points to Azure (host contains postgres.database.azure.com or similar).
+
+If DATABASE_URL is missing or points to localhost, stop and tell me exactly which Replit Secret is wrong and what to set it to.
+
+Run:
+
+node -e "console.log(process.env.DATABASE_URL)"
+
+B) Hard proof that reads exist + timestamps are recent
+
+Run these and report the outputs (summarize counts/timestamps):
+
+curl -s "http://localhost:5000/api/ami/kpi/quickcheck?tenantId=DEMO_TENANT" | python3 -m json.tool
+
+psql "$DATABASE_URL" -c "SELECT tenant_id, COUNT(*) reads, MAX(read_at) latest FROM public.meter_reads_electric GROUP BY tenant_id ORDER BY reads DESC;"
+
+If reads are 0, diagnose why ingestion is not writing to Azure and fix it without asking me.
+
+C) Fix your KPI view mistake: remove dependency on meters table
+
+You created KPI views that JOIN meters. That is fragile and not vendor-neutral. Replace KPI views to rely ONLY on public.meter_reads_electric.
+
+Apply these exact SQL statements to Azure Postgres (execute via psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "<SQL>" or as a single heredoc script). Do NOT use pgAdmin. Do NOT leave this unfinished.
+
+SQL to apply:
+
+CREATE OR REPLACE VIEW public.v_kpi_electric_overview_daily AS
+SELECT
+tenant_id,
+DATE(read_at) AS day,
+SUM(kwh)::numeric AS total_loss_kwh,
+ROUND(AVG(kwh)::numeric, 2) AS loss_percent_pct,
+(
+SELECT jsonb_agg(jsonb_build_object('feeder', feeder_id, 'lossPercent', loss_percent) ORDER BY loss_percent DESC)
+FROM (
+SELECT feeder_id, ROUND(AVG(kwh)::numeric, 4) AS loss_percent
+FROM public.meter_reads_electric mre2
+WHERE mre2.tenant_id = mre.tenant_id
+AND DATE(mre2.read_at) = DATE(mre.read_at)
+GROUP BY feeder_id
+ORDER BY loss_percent DESC
+LIMIT 10
+) t
+) AS top_loss_feeders,
+MAX(read_at) AS last_updated
+FROM public.meter_reads_electric mre
+GROUP BY tenant_id, DATE(read_at);
+
+CREATE OR REPLACE VIEW public.v_kpi_electric_feeder_loss_daily AS
+SELECT
+tenant_id,
+DATE(read_at) AS day,
+feeder_id AS feeder,
+ROUND(AVG(kwh)::numeric, 4) AS loss_percent
+FROM public.meter_reads_electric
+GROUP BY tenant_id, DATE(read_at), feeder_id;
+
+CREATE OR REPLACE VIEW public.v_kpi_suspicious_meters_daily AS
+SELECT
+tenant_id,
+DATE(read_at) AS day,
+meter_id,
+CASE
+WHEN voltage IS NOT NULL AND voltage < 115 THEN 'LOW_VOLTAGE'
+WHEN kwh IS NOT NULL AND kwh < 5 THEN 'LOW_USAGE'
+ELSE 'NORMAL'
+END AS issue
+FROM public.meter_reads_electric
+WHERE (voltage IS NOT NULL AND voltage < 115)
+OR (kwh IS NOT NULL AND kwh < 5);
+
+CREATE OR REPLACE VIEW public.v_kpi_fieldops_daily AS
+SELECT
+tenant_id,
+DATE(read_at) AS day,
+COUNT()::int AS open_tasks,
+COUNT() FILTER (WHERE voltage IS NOT NULL AND voltage < 115)::int AS power_quality_tasks,
+COUNT(*) FILTER (WHERE kwh IS NOT NULL AND kwh < 5)::int AS revenue_or_meter_tasks
+FROM public.meter_reads_electric
+GROUP BY tenant_id, DATE(read_at);
+
+After applying, run:
+
+psql "$DATABASE_URL" -c "SELECT table_name FROM information_schema.views WHERE table_schema='public' AND table_name LIKE 'v_kpi_%' ORDER BY table_name;"
+
+psql "$DATABASE_URL" -c "SELECT * FROM public.v_kpi_electric_overview_daily WHERE tenant_id='DEMO_TENANT' ORDER BY day DESC LIMIT 5;"
+
+psql "$DATABASE_URL" -c "SELECT * FROM public.v_kpi_fieldops_daily WHERE tenant_id='DEMO_TENANT' ORDER BY day DESC LIMIT 5;"
+
+If any view returns empty while reads exist, diagnose and fix.
+
+D) Run the demo loop (publish → check KPIs → theft event → publish → check KPIs)
+
+Run these in order and show outputs:
+
+Publish:
+curl -s -X POST http://localhost:5000/api/ami/publish-once
+
+-H "Authorization: Bearer $GRIDLENS_API_KEY"
+-H "Content-Type: application/json"
+-d '{"tenantId":"DEMO_TENANT","intervalMinutes":15,"batchSize":200}' | python3 -m json.tool
+
+KPI quickcheck:
+curl -s "http://localhost:5000/api/ami/kpi/quickcheck?tenantId=DEMO_TENANT
+" | python3 -m json.tool
+
+Trigger theft event:
+curl -s -X POST http://localhost:5000/api/ami/event/theft
+
+-H "Authorization: Bearer $GRIDLENS_API_KEY"
+-H "Content-Type: application/json"
+-d '{"tenantId":"DEMO_TENANT","feederId":"FEEDER_7","durationMinutes":60,"severity":0.7}' | python3 -m json.tool
+
+Publish again:
+curl -s -X POST http://localhost:5000/api/ami/publish-once
+
+-H "Authorization: Bearer $GRIDLENS_API_KEY"
+-H "Content-Type: application/json"
+-d '{"tenantId":"DEMO_TENANT","intervalMinutes":15,"batchSize":200}' | python3 -m json.tool
+
+KPI quickcheck again:
+curl -s "http://localhost:5000/api/ami/kpi/quickcheck?tenantId=DEMO_TENANT
+" | python3 -m json.tool
+
+E) Final acceptance criteria (must satisfy all)
+
+DATABASE_URL points to Azure
+
+meter_reads_electric has reads > 0 for DEMO_TENANT
+
+All four KPI views exist and return non-empty results after publish-once
+
+quickcheck returns arrays with rows (not empty)
+
+If anything fails, fix it yourself and re-run the failing steps until all criteria pass.
