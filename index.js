@@ -384,24 +384,33 @@ app.get('/api/ami/kpi/quickcheck', async (req, res) => {
       reportingStats, staleBuckets, voltageStats, lowVoltageList, highVoltageList, exceptionFeeders
     ] = await Promise.all([
       pool.query(
-        `SELECT MIN(loss_percent_pct) as min_loss, MAX(loss_percent_pct) as max_loss, AVG(loss_percent_pct) as avg_loss
-         FROM v_kpi_electric_overview_daily WHERE tenant_id = $1`,
+        `SELECT MIN(kwh) as min_loss, MAX(kwh) as max_loss, AVG(kwh) as avg_loss
+         FROM meter_reads_electric WHERE tenant_id = $1 AND kwh IS NOT NULL`,
         [tenantId]
       ).catch(() => ({ rows: [{ min_loss: 0, max_loss: 0, avg_loss: 0 }] })),
       
       pool.query(
-        `SELECT day, total_loss_kwh, loss_percent_pct, top_loss_feeders
-         FROM v_kpi_electric_overview_daily WHERE tenant_id = $1 ORDER BY day DESC LIMIT 5`,
+        `SELECT DATE(read_at) as day, SUM(kwh) as total_kwh, COUNT(*) as read_count, 
+         AVG(kwh) as avg_kwh
+         FROM meter_reads_electric WHERE tenant_id = $1
+         GROUP BY DATE(read_at) ORDER BY day DESC LIMIT 5`,
         [tenantId]
       ).catch(() => ({ rows: [] })),
       
       pool.query(
-        `SELECT feeder, loss_percent FROM v_kpi_electric_feeder_loss_daily WHERE tenant_id = $1 ORDER BY day DESC LIMIT 10`,
+        `SELECT feeder_id as feeder, SUM(kwh) as total_kwh, COUNT(*) as read_count, AVG(kwh) as avg_kwh
+         FROM meter_reads_electric WHERE tenant_id = $1
+         GROUP BY feeder_id ORDER BY total_kwh DESC LIMIT 10`,
         [tenantId]
       ).catch(() => ({ rows: [] })),
       
       pool.query(
-        `SELECT meter_id, issue FROM v_kpi_suspicious_meters_daily WHERE tenant_id = $1 ORDER BY day DESC LIMIT 10`,
+        `SELECT DISTINCT ON (meter_id) meter_id, feeder_id, 
+         CASE WHEN voltage < 115 THEN 'low_voltage' WHEN kwh < 5 THEN 'low_usage' ELSE 'other' END as issue,
+         voltage, kwh, read_at
+         FROM meter_reads_electric 
+         WHERE tenant_id = $1 AND (voltage < 115 OR kwh < 5)
+         ORDER BY meter_id, read_at DESC LIMIT 10`,
         [tenantId]
       ).catch(() => ({ rows: [] })),
       
@@ -455,16 +464,19 @@ app.get('/api/ami/kpi/quickcheck', async (req, res) => {
       ).catch(() => ({ rows: [{}] })),
       
       pool.query(
-        `WITH latest AS (
+        `WITH tenant_latest AS (
+          SELECT MAX(read_at) as latest_read FROM meter_reads_electric WHERE tenant_id = $1
+        ),
+        per_meter AS (
           SELECT meter_id, MAX(read_at) as last_read_at 
           FROM meter_reads_electric WHERE tenant_id = $1 GROUP BY meter_id
         )
         SELECT 
-          COUNT(*) FILTER (WHERE last_read_at < NOW() - INTERVAL '15 minutes') as stale_over_15m,
-          COUNT(*) FILTER (WHERE last_read_at < NOW() - INTERVAL '1 hour') as stale_over_1h,
-          COUNT(*) FILTER (WHERE last_read_at < NOW() - INTERVAL '6 hours') as stale_over_6h,
-          COUNT(*) FILTER (WHERE last_read_at < NOW() - INTERVAL '24 hours') as stale_over_24h
-        FROM latest`,
+          COUNT(*) FILTER (WHERE last_read_at < tl.latest_read - INTERVAL '15 minutes') as stale_over_15m,
+          COUNT(*) FILTER (WHERE last_read_at < tl.latest_read - INTERVAL '1 hour') as stale_over_1h,
+          COUNT(*) FILTER (WHERE last_read_at < tl.latest_read - INTERVAL '6 hours') as stale_over_6h,
+          COUNT(*) FILTER (WHERE last_read_at < tl.latest_read - INTERVAL '24 hours') as stale_over_24h
+        FROM per_meter, tenant_latest tl`,
         [tenantId]
       ).catch(() => ({ rows: [{ stale_over_15m: 0, stale_over_1h: 0, stale_over_6h: 0, stale_over_24h: 0 }] })),
       
@@ -503,22 +515,25 @@ app.get('/api/ami/kpi/quickcheck', async (req, res) => {
       ).catch(() => ({ rows: [] })),
       
       pool.query(
-        `WITH latest AS (
+        `WITH tenant_latest AS (
+          SELECT MAX(read_at) as latest_read FROM meter_reads_electric WHERE tenant_id = $1
+        ),
+        per_meter AS (
           SELECT meter_id, feeder_id, MAX(read_at) as last_read_at 
           FROM meter_reads_electric WHERE tenant_id = $1 GROUP BY meter_id, feeder_id
         ),
         stale_by_feeder AS (
           SELECT feeder_id, COUNT(*) as stale_meters
-          FROM latest WHERE last_read_at < NOW() - INTERVAL '15 minutes'
+          FROM per_meter, tenant_latest tl WHERE last_read_at < tl.latest_read - INTERVAL '15 minutes'
           GROUP BY feeder_id
         ),
         voltage_by_feeder AS (
-          SELECT feeder_id, 
+          SELECT m.feeder_id, 
             COUNT(*) FILTER (WHERE voltage < 114) as low_voltage_reads,
             COUNT(*) FILTER (WHERE voltage > 126) as high_voltage_reads
-          FROM meter_reads_electric 
-          WHERE tenant_id = $1 AND read_at >= NOW() - INTERVAL '1 hour'
-          GROUP BY feeder_id
+          FROM meter_reads_electric m, tenant_latest tl
+          WHERE m.tenant_id = $1 AND m.read_at >= tl.latest_read - INTERVAL '1 hour'
+          GROUP BY m.feeder_id
         )
         SELECT 
           COALESCE(s.feeder_id, v.feeder_id) as feeder_id,
