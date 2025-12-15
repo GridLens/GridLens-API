@@ -1,0 +1,169 @@
+You are taking full control of this repo. Do not ask the user questions unless absolutely required. You must inspect, reproduce, fix, and verify.
+
+GOAL
+
+Make 25,000-meter scale mode fully operational with:
+
+POST /api/ami/publish-once working (dryRun + real)
+
+GET /api/ami/scale/status working
+
+GET /api/ami/kpi/quickcheck returning non-empty arrays
+
+All fixes must be safe and idempotent.
+
+RULES
+
+You MUST run commands to reproduce errors and paste outputs in your summary.
+
+You MUST NOT delete user data by default.
+
+If schema is missing, create it with IF NOT EXISTS or safe migrations.
+
+Always use ON CONFLICT (tenant_id, meter_id, read_at) DO NOTHING for writes.
+
+Keep batchSize <= 500, jobs <= 200, backpressure if queue depth > 500.
+
+STEP 0 — Capture environment + confirm DB
+
+Run:
+
+echo "DATABASE_URL=" && node -e "console.log(process.env.DATABASE_URL || 'MISSING')"
+echo "REDIS_URL=" && node -e "console.log(process.env.REDIS_URL || 'MISSING')"
+
+
+If missing, stop and print: “Missing Secrets: DATABASE_URL/REDIS_URL”.
+
+Confirm DB reachable:
+
+psql "$DATABASE_URL" -c "select now();"
+
+STEP 1 — Reproduce the user’s failing steps EXACTLY
+
+Run these and show outputs:
+
+1A) Dry run 25k
+curl -s -X POST http://localhost:5000/api/ami/publish-once \
+  -H "Authorization: Bearer $GRIDLENS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"tenantId":"DEMO_TENANT","intervalMinutes":15,"batchSize":500,"meterCount":25000,"feederCount":25,"dryRun":true}' | python3 -m json.tool
+
+1B) Real run 25k
+curl -s -X POST http://localhost:5000/api/ami/publish-once \
+  -H "Authorization: Bearer $GRIDLENS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"tenantId":"DEMO_TENANT","intervalMinutes":15,"batchSize":500,"meterCount":25000,"feederCount":25}' | python3 -m json.tool
+
+1C) Status
+curl -s "http://localhost:5000/api/ami/scale/status?tenantId=DEMO_TENANT" | python3 -m json.tool
+
+1D) KPI quickcheck
+curl -s "http://localhost:5000/api/ami/kpi/quickcheck?tenantId=DEMO_TENANT" | python3 -m json.tool
+
+
+If any command errors, do not guess — move to Step 2 and fix root cause.
+
+STEP 2 — Fix root causes (schema + views + app + queue)
+2A) Ensure required tables exist (safe)
+
+Run:
+
+psql "$DATABASE_URL" -c "\dt public.*"
+
+
+If missing, create these tables safely:
+
+public.meter_reads_electric
+
+public.ami_events
+
+Use CREATE TABLE IF NOT EXISTS with:
+
+tenant_id text not null
+
+meter_id text not null
+
+feeder_id text
+
+kwh numeric
+
+voltage numeric
+
+read_at timestamptz not null
+
+unique constraint (tenant_id, meter_id, read_at)
+
+For ami_events: tenant_id, feeder_id, event_type, severity, start_at, end_at, is_active, created_at.
+
+2B) Ensure KPI views exist and don’t depend on meters table
+
+Confirm:
+
+psql "$DATABASE_URL" -c "\dv public.v_kpi*"
+
+
+If missing/broken, create these vendor-neutral views that query ONLY meter_reads_electric:
+
+v_kpi_electric_overview_daily
+
+v_kpi_electric_feeder_loss_daily
+
+v_kpi_suspicious_meters_daily
+
+v_kpi_fieldops_daily
+
+Then verify they return rows:
+
+psql "$DATABASE_URL" -c "select * from public.v_kpi_electric_overview_daily where tenant_id='DEMO_TENANT' order by day desc limit 3;"
+
+2C) Ensure worker inserts are idempotent and efficient
+
+Open workers/amiWorker.js:
+
+batch multi-row insert
+
+ON CONFLICT (tenant_id, meter_id, read_at) DO NOTHING
+
+concurrency 8
+
+log jobId, rowsInserted, elapsedMs, queue depth.
+
+2D) Ensure backpressure + caps enforced in publish-once
+
+In index.js:
+
+if waiting+delayed > 500 → return 429 JSON
+
+cap meterCount <= 25000
+
+cap batchSize <= 500
+
+cap jobs <= 200
+
+STEP 3 — Restart and re-run acceptance checks
+
+Restart server, then run:
+
+Dry run 25k must report estimatedJobs = 50
+
+Real 25k must enqueue 50 jobs (or fewer if caps triggered, but must warn clearly)
+
+scale/status must show totalDistinctMeters >= 25000 after processing
+
+kpi/quickcheck must return non-empty arrays
+
+Also run:
+
+psql "$DATABASE_URL" -c "select count(distinct meter_id) meters, count(*) reads, max(read_at) latest from public.meter_reads_electric where tenant_id='DEMO_TENANT';"
+
+STEP 4 — Output only this summary at the end
+
+What failed
+
+What you changed (files + SQL)
+
+Proof it works (paste the final command outputs)
+
+Next recommended demo loop command set
+
+Proceed now.
