@@ -1,0 +1,164 @@
+GOAL: Implement Phase 3 “Pilot Hardening” for GridLens: feeder-aware AMI emulator + pilot events + idempotent Postgres writes + validation endpoints + a demo runbook.
+
+Context
+
+This is a Node/Express backend running on port 5000
+
+We already have BullMQ working (queue + worker) and endpoints:
+
+POST /api/ami/publish-once
+
+POST /api/ami/start
+
+POST /api/ami/stop
+
+Azure Postgres is connected via DATABASE_URL
+
+We already created KPI views in Azure Postgres:
+
+public.v_kpi_electric_overview_daily
+
+public.v_kpi_electric_feeder_loss_daily
+
+public.v_kpi_suspicious_meters_daily
+
+public.v_kpi_fieldops_daily
+
+Phase 3 Requirements
+
+Feeder-aware generation
+
+Emulator must query meters joined to feeders so every synthetic read is tied to a meter’s feeder.
+
+For each feeder, apply a baseline load curve (e.g., higher daytime, lower overnight) + feeder “loss factor” + per-meter noise.
+
+Use tenantId provided in request.
+
+Pilot events (client-convincing)
+Add event endpoints that influence generated reads:
+
+POST /api/ami/event/theft (usage drops for selected meters while feeder delivered stays normal)
+
+POST /api/ami/event/comms-outage (skip reads for meters on a feeder)
+
+POST /api/ami/event/voltage-sag (voltage drops below normal band for meters on a feeder)
+
+Events must accept JSON:
+
+{
+  "tenantId": "DEMO_TENANT",
+  "feederId": "FEEDER_7",
+  "durationMinutes": 60,
+  "severity": 0.8
+}
+
+
+Events should be persisted in Postgres (preferred) so they survive restarts:
+Create table if not exists:
+
+public.ami_events
+Columns:
+
+id (uuid default gen_random_uuid())
+
+tenant_id text not null
+
+feeder_id text not null
+
+event_type text not null
+
+severity numeric not null default 0.5
+
+start_at timestamptz not null default now()
+
+end_at timestamptz not null
+
+is_active boolean not null default true
+Indexes on (tenant_id, feeder_id, is_active, end_at)
+
+Postgres-safe idempotent writes
+Ensure meter_reads_electric inserts are UPSERT safe:
+
+Add unique constraint on (tenant_id, meter_id, read_at) if not exists
+
+Worker must use INSERT ... ON CONFLICT ... DO UPDATE
+Update fields: kwh, voltage, quality_flags, updated_at
+
+Validation endpoints
+Add endpoints:
+
+GET /api/ami/status returns queue health, active events, last ingest timestamp, recent job stats
+
+GET /api/ami/kpi/quickcheck?tenantId=DEMO_TENANT returns:
+
+loss min/max/avg from v_kpi_electric_overview_daily
+
+last 5 rows overview
+
+last 10 rows feeder loss
+
+last 10 suspicious meters
+
+last 10 fieldops
+
+Runbook docs
+Create docs/PILOT_RUNBOOK.md with:
+
+How to run publish-once
+
+How to start/stop continuous
+
+How to trigger each event
+
+SQL queries to verify ingestion + KPI view updates
+
+“Pilot Demo Flow” steps (start → show baseline → trigger event → show KPI shift)
+
+Implementation Instructions
+
+Create/modify files as needed:
+
+services/amiEmulator.js (feeder-aware logic + event application)
+
+workers/amiWorker.js (UPSERT + safe batching)
+
+queues/amiQueue.js (leave mostly as-is; add job name metadata if helpful)
+
+index.js (add new endpoints)
+
+db.js (ensure single pooled pg client)
+
+Add migrations SQL file: sql/phase3_ami_events.sql
+
+Use pg Pool and parameterized queries only.
+
+Do not hardcode secrets.
+
+Respect Authorization: Bearer API key checks exactly as existing endpoints do.
+
+Add small helper in services/amiEmulator.js to compute baseline kwh based on hour-of-day.
+
+Make batch generation deterministic-ish (optional): allow seed param for repeatable demos.
+
+After changes, provide:
+
+a quick list of changed files
+
+example curl commands using localhost
+
+a sanity test checklist
+
+IMPORTANT
+
+Before coding, detect actual schema:
+
+Run queries (from code) to confirm whether:
+
+meters has feeder_id or feeder_code
+
+feeders primary identifier
+
+meter_reads_electric columns include kwh, voltage, quality_flags, tenant_id, meter_id, read_at
+If schema differs, adapt automatically and document the mapping.
+
+Now implement Phase 3 completely.

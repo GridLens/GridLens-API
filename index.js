@@ -16,7 +16,8 @@ import energyLossRouter from "./routes/energyLossRouter.js";
 import kpiEnergyLoss from "./routes/kpiEnergyLoss.js";
 import outagesRouter from "./routes/outagesRouter.js";
 import fieldOpsRouter from "./routes/fieldOpsRouter.js";
-import { buildAndEnqueueReadBatches } from "./services/amiEmulator.js";
+import { buildAndEnqueueReadBatches, createEvent, getQueueStatus, getActiveEventsForTenant, getLastIngestTimestamp } from "./services/amiEmulator.js";
+import { pool } from "./db.js";
 import "./workers/amiWorker.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -198,6 +199,115 @@ app.post('/api/ami/stop', (req, res) => {
     res.json({ ok: true, message: 'AMI emulator stopped' });
   } else {
     res.json({ ok: true, message: 'AMI emulator was not running' });
+  }
+});
+
+// -----------------------------
+// Phase 3: Pilot Event Endpoints
+// -----------------------------
+app.post('/api/ami/event/theft', async (req, res) => {
+  try {
+    const { tenantId = 'DEMO_TENANT', feederId, durationMinutes = 60, severity = 0.8 } = req.body || {};
+    if (!feederId) return res.status(400).json({ error: 'feederId required' });
+    const event = await createEvent({ tenantId, feederId, eventType: 'theft', durationMinutes, severity });
+    res.json({ ok: true, event });
+  } catch (err) {
+    console.error('Event theft error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/ami/event/comms-outage', async (req, res) => {
+  try {
+    const { tenantId = 'DEMO_TENANT', feederId, durationMinutes = 60, severity = 1.0 } = req.body || {};
+    if (!feederId) return res.status(400).json({ error: 'feederId required' });
+    const event = await createEvent({ tenantId, feederId, eventType: 'comms-outage', durationMinutes, severity });
+    res.json({ ok: true, event });
+  } catch (err) {
+    console.error('Event comms-outage error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/ami/event/voltage-sag', async (req, res) => {
+  try {
+    const { tenantId = 'DEMO_TENANT', feederId, durationMinutes = 60, severity = 0.5 } = req.body || {};
+    if (!feederId) return res.status(400).json({ error: 'feederId required' });
+    const event = await createEvent({ tenantId, feederId, eventType: 'voltage-sag', durationMinutes, severity });
+    res.json({ ok: true, event });
+  } catch (err) {
+    console.error('Event voltage-sag error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// -----------------------------
+// Phase 3: Validation Endpoints
+// -----------------------------
+app.get('/api/ami/status', async (req, res) => {
+  try {
+    const tenantId = req.query.tenantId || 'DEMO_TENANT';
+    const [queueStatus, activeEvents, lastIngest] = await Promise.all([
+      getQueueStatus(),
+      getActiveEventsForTenant(tenantId),
+      getLastIngestTimestamp(tenantId)
+    ]);
+    res.json({
+      queue: queueStatus,
+      activeEvents,
+      lastIngestTimestamp: lastIngest,
+      emulatorRunning: !!amiTimer,
+      intervalMinutes: amiIntervalMinutes
+    });
+  } catch (err) {
+    console.error('AMI status error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/ami/kpi/quickcheck', async (req, res) => {
+  try {
+    const tenantId = req.query.tenantId || 'DEMO_TENANT';
+    
+    const [lossStats, overviewRows, feederRows, suspiciousRows, fieldopsRows] = await Promise.all([
+      pool.query(
+        `SELECT MIN(loss_percent_pct) as min_loss, MAX(loss_percent_pct) as max_loss, AVG(loss_percent_pct) as avg_loss
+         FROM v_kpi_electric_overview_daily WHERE tenant_id = $1`,
+        [tenantId]
+      ).catch(() => ({ rows: [{ min_loss: 0, max_loss: 0, avg_loss: 0 }] })),
+      
+      pool.query(
+        `SELECT day, total_loss_kwh, loss_percent_pct, top_loss_feeders
+         FROM v_kpi_electric_overview_daily WHERE tenant_id = $1 ORDER BY day DESC LIMIT 5`,
+        [tenantId]
+      ).catch(() => ({ rows: [] })),
+      
+      pool.query(
+        `SELECT feeder, loss_percent FROM v_kpi_electric_feeder_loss_daily WHERE tenant_id = $1 ORDER BY day DESC LIMIT 10`,
+        [tenantId]
+      ).catch(() => ({ rows: [] })),
+      
+      pool.query(
+        `SELECT meter_id, issue FROM v_kpi_suspicious_meters_daily WHERE tenant_id = $1 ORDER BY day DESC LIMIT 10`,
+        [tenantId]
+      ).catch(() => ({ rows: [] })),
+      
+      pool.query(
+        `SELECT * FROM v_kpi_fieldops_daily WHERE tenant_id = $1 ORDER BY day DESC LIMIT 10`,
+        [tenantId]
+      ).catch(() => ({ rows: [] }))
+    ]);
+    
+    res.json({
+      lossStats: lossStats.rows[0] || { min_loss: 0, max_loss: 0, avg_loss: 0 },
+      overviewLast5: overviewRows.rows,
+      feederLossLast10: feederRows.rows,
+      suspiciousMetersLast10: suspiciousRows.rows,
+      fieldopsLast10: fieldopsRows.rows
+    });
+  } catch (err) {
+    console.error('KPI quickcheck error:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
