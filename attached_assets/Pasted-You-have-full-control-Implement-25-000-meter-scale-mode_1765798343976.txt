@@ -1,0 +1,124 @@
+You have full control. Implement 25,000-meter scale mode safely.
+
+CURRENT STATE:
+- AMI emulator works at small scale.
+- BullMQ ingestion writes to public.meter_reads_electric.
+- KPI views query ONLY meter_reads_electric.
+- We can publish baseline + apply theft events.
+
+OBJECTIVE:
+Scale simulation to 25,000 meters with realistic batching and without overloading:
+- Redis/BullMQ
+- Postgres
+- CPU/memory
+
+NON-NEGOTIABLE SAFETY LIMITS:
+- Never enqueue more than 2,500 meter reads per second.
+- batchSize max = 500 meters per job.
+- hard cap: maxJobsPerPublishOnce = 200 (to avoid runaway)
+- Use concurrency in worker: 5-10 (adaptive based on latency)
+- Add backpressure: if queue waiting jobs > 500, refuse new publish and return 429 with message.
+- Always use INSERT ... ON CONFLICT DO NOTHING (idempotent).
+
+STEP A — Add meterCount + feederCount + dryRun
+1) Update POST /api/ami/publish-once to accept:
+   {
+     tenantId,
+     intervalMinutes (default 15),
+     batchSize (default 500),
+     meterCount (default 500),
+     feederCount (default 25),
+     dryRun (default false)
+   }
+
+2) If dryRun=true, do NOT enqueue.
+   Return:
+   - computedMeters
+   - computedFeederCount
+   - computedBatches
+   - estimatedJobs
+   - estimatedRuntimeSeconds (rough)
+   - safetyWarnings if any caps triggered
+
+3) For real run (dryRun=false):
+   Generate deterministic meter IDs without requiring a meters table:
+   - meter_id format: `${tenantId}-MTR-${String(i).padStart(5,'0')}`
+   Generate feeder IDs:
+   - feeder_id format: `FEEDER_${1..feederCount}`
+   Distribute meters evenly across feeders.
+
+4) Align read_at to the nearest interval boundary (15/60).
+   For each meter in a job, generate:
+   - kwh: baseline curve + meter noise
+   - voltage: around 118-124 + occasional anomalies
+   - apply active events by feeder_id (theft, voltage-sag, comms-outage)
+   - comms-outage => skip generating row for affected meters
+
+STEP B — Implement backpressure + caps
+1) Before enqueue, query BullMQ queue counts.
+   If waiting+delayed > 500, return HTTP 429 with JSON:
+   { ok:false, error:"Backpressure: queue too deep", waiting, delayed }
+
+2) Enforce:
+   - batchSize <= 500
+   - meterCount <= 25000
+   - feederCount between 10 and 40
+   - maxJobsPerPublishOnce <= 200
+   If meterCount would exceed maxJobsPerPublishOnce * batchSize, truncate meterCount and return warning.
+
+STEP C — Worker concurrency tuning
+1) Ensure worker uses:
+   - concurrency: 8 (or adaptive)
+   - one multi-row insert per batch
+   - ON CONFLICT (tenant_id, meter_id, read_at) DO NOTHING
+
+2) Add logging:
+   - jobId, feederId, metersCount
+   - insertCount (rows affected)
+   - elapsedMs
+   - queue depth after completion
+
+STEP D — Add Scale Status Endpoint
+Add GET /api/ami/scale/status?tenantId=...
+Return:
+- totalDistinctMeters in meter_reads_electric for tenant
+- totalReads
+- latestReadAt
+- queue depth (waiting, active, completed)
+- ingestion rate estimate
+
+SQL:
+SELECT COUNT(DISTINCT meter_id) meters,
+       COUNT(*) reads,
+       MAX(read_at) latest
+FROM public.meter_reads_electric
+WHERE tenant_id = $1;
+
+STEP E — Provide exact test commands
+After implementation, output these commands:
+
+1) Dry run for 25k meters:
+curl -s -X POST http://localhost:5000/api/ami/publish-once \
+  -H "Authorization: Bearer $GRIDLENS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"tenantId":"DEMO_TENANT","intervalMinutes":15,"batchSize":500,"meterCount":25000,"feederCount":25,"dryRun":true}' | python3 -m json.tool
+
+2) Run 25k safely (may truncate based on caps):
+curl -s -X POST http://localhost:5000/api/ami/publish-once \
+  -H "Authorization: Bearer $GRIDLENS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"tenantId":"DEMO_TENANT","intervalMinutes":15,"batchSize":500,"meterCount":25000,"feederCount":25}' | python3 -m json.tool
+
+3) Check scale status:
+curl -s "http://localhost:5000/api/ami/scale/status?tenantId=DEMO_TENANT" | python3 -m json.tool
+
+4) KPI quickcheck:
+curl -s "http://localhost:5000/api/ami/kpi/quickcheck?tenantId=DEMO_TENANT" | python3 -m json.tool
+
+FINAL ACCEPTANCE:
+- dryRun reports correct batch count (25000/500=50 jobs)
+- real run enqueues <= 200 jobs, batchSize <= 500
+- scale/status shows meters >= 25000 after enough cycles (if truncated, report how many)
+- KPI quickcheck still returns non-empty data
+- no Redis auth errors, no DB timeouts
+Proceed and implement now.

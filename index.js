@@ -26,7 +26,10 @@ import {
   validateKpiMovement,
   getDemoStatus,
   setDemoMode,
-  getDemoMode
+  getDemoMode,
+  publishScaleMode,
+  getScaleStatus,
+  checkBackpressure
 } from "./services/amiEmulator.js";
 import { pool } from "./db.js";
 import "./workers/amiWorker.js";
@@ -167,7 +170,32 @@ let amiIntervalMinutes = 15;
 
 app.post('/api/ami/publish-once', async (req, res) => {
   try {
-    const { tenantId = 'DEMO_TENANT', intervalMinutes = 15, batchSize = 100 } = req.body || {};
+    const { 
+      tenantId = 'DEMO_TENANT', 
+      intervalMinutes = 15, 
+      batchSize = 100,
+      meterCount,
+      feederCount,
+      dryRun = false
+    } = req.body || {};
+    
+    if (meterCount !== undefined || feederCount !== undefined || dryRun) {
+      const result = await publishScaleMode({
+        tenantId,
+        intervalMinutes,
+        batchSize: batchSize || 500,
+        meterCount: meterCount || 500,
+        feederCount: feederCount || 25,
+        dryRun
+      });
+      
+      if (!result.ok && result.error?.includes('Backpressure')) {
+        return res.status(429).json(result);
+      }
+      
+      return res.json(result);
+    }
+    
     const result = await buildAndEnqueueReadBatches({ tenantId, intervalMinutes, batchSize });
     res.json({ ok: true, ...result });
   } catch (err) {
@@ -304,6 +332,20 @@ app.get('/api/ami/demo/validate-kpi', async (req, res) => {
   } catch (err) {
     console.error('KPI validation error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// -----------------------------
+// Scale Mode Endpoints
+// -----------------------------
+app.get('/api/ami/scale/status', async (req, res) => {
+  try {
+    const tenantId = req.query.tenantId || 'DEMO_TENANT';
+    const result = await getScaleStatus(tenantId);
+    res.json(result);
+  } catch (err) {
+    console.error('Scale status error:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 

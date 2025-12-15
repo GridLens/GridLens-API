@@ -389,3 +389,217 @@ export function getDemoStatus() {
     lastEventInjected
   };
 }
+
+const SCALE_LIMITS = {
+  maxBatchSize: 500,
+  maxMeterCount: 25000,
+  minFeederCount: 10,
+  maxFeederCount: 40,
+  maxJobsPerPublish: 200,
+  maxQueueDepth: 500
+};
+
+export async function checkBackpressure() {
+  try {
+    const [waiting, delayed, active] = await Promise.all([
+      amiQueue.getWaitingCount(),
+      amiQueue.getDelayedCount(),
+      amiQueue.getActiveCount()
+    ]);
+    
+    const totalPending = waiting + delayed;
+    const overLimit = totalPending > SCALE_LIMITS.maxQueueDepth;
+    
+    return {
+      waiting,
+      delayed,
+      active,
+      totalPending,
+      overLimit,
+      limit: SCALE_LIMITS.maxQueueDepth
+    };
+  } catch (err) {
+    return { error: err.message, overLimit: false };
+  }
+}
+
+function generateSyntheticMeterReading(tenantId, meterIndex, feederId, readAt) {
+  const meterId = `${tenantId}-MTR-${String(meterIndex).padStart(5, '0')}`;
+  const hour = readAt.getHours();
+  const baseKwh = getBaselineKwh(hour);
+  
+  const meterNoise = demoMode ? 0 : ((meterIndex % 100) / 100 - 0.5) * 0.2;
+  const randomNoise = demoMode ? 0 : (Math.random() - 0.5) * 0.1;
+  const kwh = baseKwh * (1 + meterNoise + randomNoise);
+  
+  const baseVoltage = 121;
+  const voltageVariation = demoMode ? 0 : (Math.random() - 0.5) * 6;
+  const voltage = baseVoltage + voltageVariation;
+  
+  return {
+    tenant_id: tenantId,
+    meter_id: meterId,
+    feeder_id: feederId,
+    kwh: parseFloat(kwh.toFixed(2)),
+    voltage: parseFloat(voltage.toFixed(1)),
+    read_at: readAt.toISOString()
+  };
+}
+
+export async function publishScaleMode({
+  tenantId = "DEMO_TENANT",
+  intervalMinutes = 15,
+  batchSize = 500,
+  meterCount = 500,
+  feederCount = 25,
+  dryRun = false
+}) {
+  const warnings = [];
+  
+  const effectiveBatchSize = Math.min(batchSize, SCALE_LIMITS.maxBatchSize);
+  if (batchSize > SCALE_LIMITS.maxBatchSize) {
+    warnings.push(`batchSize capped from ${batchSize} to ${SCALE_LIMITS.maxBatchSize}`);
+  }
+  
+  let effectiveMeterCount = Math.min(meterCount, SCALE_LIMITS.maxMeterCount);
+  if (meterCount > SCALE_LIMITS.maxMeterCount) {
+    warnings.push(`meterCount capped from ${meterCount} to ${SCALE_LIMITS.maxMeterCount}`);
+  }
+  
+  let effectiveFeederCount = Math.max(SCALE_LIMITS.minFeederCount, Math.min(feederCount, SCALE_LIMITS.maxFeederCount));
+  if (feederCount < SCALE_LIMITS.minFeederCount || feederCount > SCALE_LIMITS.maxFeederCount) {
+    warnings.push(`feederCount adjusted to ${effectiveFeederCount} (limits: ${SCALE_LIMITS.minFeederCount}-${SCALE_LIMITS.maxFeederCount})`);
+  }
+  
+  const estimatedJobs = Math.ceil(effectiveMeterCount / effectiveBatchSize);
+  
+  if (estimatedJobs > SCALE_LIMITS.maxJobsPerPublish) {
+    const maxMeters = SCALE_LIMITS.maxJobsPerPublish * effectiveBatchSize;
+    warnings.push(`meterCount truncated from ${effectiveMeterCount} to ${maxMeters} to stay within ${SCALE_LIMITS.maxJobsPerPublish} job limit`);
+    effectiveMeterCount = maxMeters;
+  }
+  
+  const finalJobCount = Math.ceil(effectiveMeterCount / effectiveBatchSize);
+  const estimatedRuntimeSeconds = Math.ceil(finalJobCount * 0.5);
+  
+  const result = {
+    tenantId,
+    computedMeters: effectiveMeterCount,
+    computedFeederCount: effectiveFeederCount,
+    computedBatchSize: effectiveBatchSize,
+    estimatedJobs: finalJobCount,
+    estimatedRuntimeSeconds,
+    safetyWarnings: warnings,
+    dryRun
+  };
+  
+  if (dryRun) {
+    return { ok: true, ...result, message: "Dry run - no jobs enqueued" };
+  }
+  
+  const backpressure = await checkBackpressure();
+  if (backpressure.overLimit) {
+    return {
+      ok: false,
+      error: "Backpressure: queue too deep",
+      waiting: backpressure.waiting,
+      delayed: backpressure.delayed,
+      limit: backpressure.limit
+    };
+  }
+  
+  const readAt = alignToInterval(new Date(), intervalMinutes);
+  const metersPerFeeder = Math.ceil(effectiveMeterCount / effectiveFeederCount);
+  
+  const feederEvents = {};
+  for (let f = 1; f <= effectiveFeederCount; f++) {
+    const feederId = `FEEDER_${f}`;
+    feederEvents[feederId] = await getActiveEvents(tenantId, feederId, readAt);
+  }
+  
+  let totalQueued = 0;
+  let batchCount = 0;
+  let meterIndex = 1;
+  
+  for (let f = 1; f <= effectiveFeederCount && meterIndex <= effectiveMeterCount; f++) {
+    const feederId = `FEEDER_${f}`;
+    const events = feederEvents[feederId] || [];
+    
+    const metersForThisFeeder = Math.min(metersPerFeeder, effectiveMeterCount - meterIndex + 1);
+    
+    for (let batch = 0; batch < Math.ceil(metersForThisFeeder / effectiveBatchSize) && meterIndex <= effectiveMeterCount; batch++) {
+      const readings = [];
+      const batchEnd = Math.min(meterIndex + effectiveBatchSize, meterIndex + metersForThisFeeder - (batch * effectiveBatchSize));
+      
+      for (; meterIndex < batchEnd && meterIndex <= effectiveMeterCount; meterIndex++) {
+        let reading = generateSyntheticMeterReading(tenantId, meterIndex, feederId, readAt);
+        reading = applyEventEffects(reading, events);
+        
+        if (!reading.skip) {
+          readings.push(reading);
+        }
+      }
+      
+      if (readings.length > 0) {
+        await amiQueue.add("ingest-batch", {
+          tenantId,
+          feederId,
+          readings,
+          intervalMinutes,
+          timestamp: readAt.toISOString(),
+          scaleMode: true
+        });
+        
+        totalQueued += readings.length;
+        batchCount++;
+      }
+    }
+  }
+  
+  lastPublishAt = readAt.toISOString();
+  
+  console.log(`[SCALE MODE] Enqueued ${totalQueued} meters in ${batchCount} jobs for tenant ${tenantId}`);
+  
+  return {
+    ok: true,
+    queued: totalQueued,
+    batches: batchCount,
+    timestamp: readAt.toISOString(),
+    ...result
+  };
+}
+
+export async function getScaleStatus(tenantId) {
+  try {
+    const [statsResult, queueStatus] = await Promise.all([
+      pool.query(
+        `SELECT 
+          COUNT(DISTINCT meter_id) as total_meters,
+          COUNT(*) as total_reads,
+          MAX(read_at) as latest_read_at
+        FROM meter_reads_electric
+        WHERE tenant_id = $1`,
+        [tenantId]
+      ),
+      checkBackpressure()
+    ]);
+    
+    const stats = statsResult.rows[0] || {};
+    
+    return {
+      tenantId,
+      totalDistinctMeters: parseInt(stats.total_meters) || 0,
+      totalReads: parseInt(stats.total_reads) || 0,
+      latestReadAt: stats.latest_read_at,
+      queue: {
+        waiting: queueStatus.waiting || 0,
+        active: queueStatus.active || 0,
+        delayed: queueStatus.delayed || 0,
+        completed: await amiQueue.getCompletedCount().catch(() => 0)
+      }
+    };
+  } catch (err) {
+    console.error("Scale status error:", err.message);
+    return { error: err.message };
+  }
+}
