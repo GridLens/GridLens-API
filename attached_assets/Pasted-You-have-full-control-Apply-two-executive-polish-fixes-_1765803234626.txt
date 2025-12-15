@@ -1,0 +1,48 @@
+You have full control. Apply two executive-polish fixes without breaking anything.
+
+RULES (NON-NEGOTIABLE):
+- Do NOT remove, rename, or change meaning of any existing JSON keys.
+- All current consumers must keep working.
+- Only ADD fields or filter optional lists in a backwards-compatible way.
+
+FIX #1 — Add an executive-friendly label (talk-track support)
+In GET /api/ami/kpi/quickcheck response:
+- Keep existing "lossStats" object unchanged.
+- ADD a new object called "executiveSummary" with friendly labels.
+
+Add:
+executiveSummary: {
+  "avgIntervalKwhProxy": <number>,
+  "avgIntervalKwhProxyLabel": "Average interval kWh (proxy)",
+  "readSuccessRatePct": <number>,
+  "lowVoltageReadsPct": <number>,
+  "topExceptionFeeder": { feederId, exceptionScore }
+}
+
+Mapping:
+- avgIntervalKwhProxy = lossStats.avg_loss (as numeric)
+- readSuccessRatePct = reportingSummary.readSuccessRatePct
+- lowVoltageReadsPct = voltageCompliance.lowVoltageReadsPct
+- topExceptionFeeder = first item in topExceptionFeeders (if any)
+
+This lets the presenter say “Average interval kWh (proxy)” instead of “loss”.
+
+FIX #2 — Make topExceptionFeeders cleaner (remove trailing zeros)
+Currently topExceptionFeeders returns many feeders with exceptionScore=0.
+Change behavior:
+- Keep existing "topExceptionFeeders" key.
+- But filter out any rows where exceptionScore <= 0.
+- If everything is zero, return an empty array (do not fabricate data).
+- Preserve ordering by exceptionScore DESC and still limit to top 10.
+
+OPTIONAL (nice):
+Also add "topExceptionFeedersAll" if you want to preserve the unfiltered list internally, but it is not required. If you add it, keep the same schema as before.
+
+PROOF (must run and paste outputs):
+1) Run quickcheck and show that:
+- lossStats still exists (unchanged)
+- executiveSummary exists with avgIntervalKwhProxyLabel
+- topExceptionFeeders no longer includes zero-score feeders
+2) Confirm response remains valid JSON.
+
+Proceed now and do not stop until proof is shown with curl output.

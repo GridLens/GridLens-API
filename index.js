@@ -552,9 +552,27 @@ app.get('/api/ami/kpi/quickcheck', async (req, res) => {
     const reportingRow = reportingStats.rows[0] || {};
     const staleRow = staleBuckets.rows[0] || {};
     const voltageRow = voltageStats.rows[0] || {};
+    const lossStatsRow = lossStats.rows[0] || { min_loss: 0, max_loss: 0, avg_loss: 0 };
+    
+    const allExceptionFeeders = exceptionFeeders.rows.map(r => ({
+      feederId: r.feeder_id,
+      staleMetersOver15m: parseInt(r.stale_meters_over_15m) || 0,
+      lowVoltageReads: parseInt(r.low_voltage_reads) || 0,
+      highVoltageReads: parseInt(r.high_voltage_reads) || 0,
+      exceptionScore: parseInt(r.exception_score) || 0
+    }));
+    
+    const filteredExceptionFeeders = allExceptionFeeders.filter(f => f.exceptionScore > 0);
+    
+    const readSuccessRatePctValue = parseFloat(reportingRow.read_success_rate_pct) || null;
+    const lowVoltageReadsPctValue = parseFloat(voltageRow.low_voltage_pct) || 0;
+    const avgIntervalKwhProxyValue = parseFloat(lossStatsRow.avg_loss) || 0;
+    const topExceptionFeederValue = filteredExceptionFeeders.length > 0 
+      ? { feederId: filteredExceptionFeeders[0].feederId, exceptionScore: filteredExceptionFeeders[0].exceptionScore }
+      : null;
     
     res.json({
-      lossStats: lossStats.rows[0] || { min_loss: 0, max_loss: 0, avg_loss: 0 },
+      lossStats: lossStatsRow,
       overviewLast5: overviewRows.rows,
       feederLossLast10: feederRows.rows,
       suspiciousMetersLast10: suspiciousRows.rows,
@@ -562,10 +580,18 @@ app.get('/api/ami/kpi/quickcheck', async (req, res) => {
       commsOutageMetersLast10: commsOutageMeters.rows,
       lowVoltageMetersLast10: lowVoltageMeters.rows,
       
+      executiveSummary: {
+        avgIntervalKwhProxy: avgIntervalKwhProxyValue,
+        avgIntervalKwhProxyLabel: "Average interval kWh (proxy)",
+        readSuccessRatePct: readSuccessRatePctValue,
+        lowVoltageReadsPct: lowVoltageReadsPctValue,
+        topExceptionFeeder: topExceptionFeederValue
+      },
+      
       reportingSummary: {
         distinctMetersSeenLastInterval: parseInt(reportingRow.distinct_meters_last_interval) || 0,
         expectedMeters: parseInt(reportingRow.expected_meters) || 0,
-        readSuccessRatePct: parseFloat(reportingRow.read_success_rate_pct) || null,
+        readSuccessRatePct: readSuccessRatePctValue,
         intervalMinutes,
         latestReadAt: reportingRow.latest_read_at || null
       },
@@ -578,20 +604,14 @@ app.get('/api/ami/kpi/quickcheck', async (req, res) => {
       },
       
       voltageCompliance: {
-        lowVoltageReadsPct: parseFloat(voltageRow.low_voltage_pct) || 0,
+        lowVoltageReadsPct: lowVoltageReadsPctValue,
         highVoltageReadsPct: parseFloat(voltageRow.high_voltage_pct) || 0,
         totalRecentReads: parseInt(voltageRow.total_recent_reads) || 0,
         lowVoltageMetersLast10: lowVoltageList.rows,
         highVoltageMetersLast10: highVoltageList.rows
       },
       
-      topExceptionFeeders: exceptionFeeders.rows.map(r => ({
-        feederId: r.feeder_id,
-        staleMetersOver15m: parseInt(r.stale_meters_over_15m) || 0,
-        lowVoltageReads: parseInt(r.low_voltage_reads) || 0,
-        highVoltageReads: parseInt(r.high_voltage_reads) || 0,
-        exceptionScore: parseInt(r.exception_score) || 0
-      }))
+      topExceptionFeeders: filteredExceptionFeeders
     });
   } catch (err) {
     console.error('KPI quickcheck error:', err.message);
