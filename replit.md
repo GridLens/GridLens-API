@@ -112,8 +112,35 @@ Analyzes usage reads and AMI events using 7 detection rules: Missing Reads, Zero
 ### Meter Health Index
 A proprietary 0-100 scoring system with 8 diagnostic rules, categorizing meters into 5 health bands: Excellent (90-100), Good (75-89), Fair (60-74), Poor (40-59), and Critical (0-39).
 
-### Frontend Dashboard
-A live interactive dashboard is served from `/public/dashboard.html` using `express.static`. It features real-time KPI cards, Chart.js visualizations, and interactive filters.
+### Executive Dashboard (4-Page)
+A live, always-on dashboard served at `/` with 30-second data polling (no page refresh). Features:
+
+**Pages:**
+1. **System Health** - Fleet overview, reporting status, feeder health summary
+2. **AMI Health & Performance** - Read success rates, voltage compliance, exception feeders
+3. **Events & Outages** - Active events, timeline, feeder impact analysis
+4. **FieldOps Queue** - Work orders, priorities, SLA tracking, revenue at risk
+
+**Features:**
+- 30-second automatic data polling (silent refresh)
+- "Last Updated" timestamp in header
+- Live/Sample Data status indicator
+- Fallback banner when API unavailable
+- All data from live API endpoints (no mock data)
+
+### Automatic Event Detection
+The worker pipeline automatically detects anomalies during read ingestion:
+- **Low voltage** (< 114V): Creates voltage-sag events
+- **Critical voltage** (< 108V): Creates high-severity events
+- **Communication patterns**: Detects missing reads/comms outages
+- **Zero/High usage**: Flags abnormal consumption patterns
+
+### Automatic Work Order Generation
+When events are created (manual or auto-detected):
+- Work orders auto-created in `field_work_orders` table
+- Priority assigned based on event type and severity
+- Status lifecycle: open → assigned → in_progress → closed
+- Estimated revenue loss calculated per work order
 
 ### Security
 Write operations (POST, PATCH) require API key authentication via a Bearer token in the Authorization header. The API key is stored as `GRIDLENS_API_KEY` in the Replit environment. Read operations are publicly accessible.
