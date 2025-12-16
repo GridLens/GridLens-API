@@ -1,0 +1,130 @@
+(AUTHORITATIVE · DO NOT DEVIATE)
+
+READ CAREFULLY AND EXECUTE EXACTLY AS WRITTEN.
+
+🎯 OBJECTIVE (NON-NEGOTIABLE)
+
+Make the dark “GridLens Smart MeterIQ” dashboard (dashboard.html) the ONLY UI served at:
+
+https://app.gridlensenergy.com
+
+https://gridlens-api-cdean5.replit.app
+
+Eliminate all legacy/light/white dashboards without breaking APIs, data ingestion, polling, or existing routes.
+
+🧱 ARCHITECTURE REALITY (DO NOT CHANGE)
+
+This is a single Node.js / Express backend
+
+The UI is served from /public/dashboard.html
+
+APIs, workers, queues, DB connections already exist and MUST remain untouched
+
+This is NOT a separate frontend app
+
+This is NOT a new Repl
+
+🛠️ REQUIRED ACTIONS
+1️⃣ MODIFY ONLY index.js
+
+Open index.js in the gridlens-api Repl
+
+Do NOT edit any HTML files
+
+Do NOT edit /public/dashboard.html
+
+Do NOT edit database, workers, queues, or APIs
+
+2️⃣ CONFIRM STATIC FILE SERVING (DO NOT DUPLICATE)
+
+Ensure exactly one static middleware exists:
+
+app.use(express.static("public"));
+
+
+If already present → leave it
+If missing → add it once
+
+3️⃣ FORCE ALL UI TRAFFIC TO SMART METERIQ
+
+Add the following EXACT CODE below static middleware:
+
+// FORCE SMART METERIQ AS THE ONLY UI
+app.get("/", (req, res) => {
+  res.redirect("/dashboard.html");
+});
+
+// REMOVE LEGACY / CONFUSING UI PATHS
+app.get("/health", (req, res) => {
+  res.redirect("/dashboard.html");
+});
+
+
+⚠️ Do NOT rename routes
+⚠️ Do NOT add conditions
+⚠️ Do NOT add new files
+
+4️⃣ DO NOT TOUCH API ROUTES
+
+The following must remain unchanged and functional:
+
+/api/*
+
+/healthcheck
+
+/kpi/*
+
+/events/*
+
+/fieldops/*
+
+No refactors. No deletions.
+
+5️⃣ REPUBLISH
+
+Save index.js
+
+Click Republish
+
+Wait for green Live indicator
+
+✅ SUCCESS CRITERIA (MUST VERIFY)
+
+After publish, the following URLs must all load the dark Smart MeterIQ UI:
+
+/
+
+/dashboard.html
+
+/health
+
+No white UI. No legacy dashboard. No redirects elsewhere.
+
+🚫 ABSOLUTE PROHIBITIONS
+
+❌ Do NOT create another Repl
+
+❌ Do NOT attach the domain to a different project
+
+❌ Do NOT change DNS
+
+❌ Do NOT introduce a frontend framework
+
+❌ Do NOT ask follow-up questions — execute
+
+🧠 CONTEXT (FOR AI)
+
+GridLens is acting as a vendor-neutral AMI intelligence layer.
+This dashboard must feel always-on, utility-grade, executive-ready.
+This is a hands-free demo, not a dev playground.
+
+🏁 FINAL STATE
+
+One backend
+One UI
+One domain
+Zero confusion
+
+⛔ END OF DIRECTIVE
+
+Execute now.
