@@ -2,7 +2,13 @@ import { Worker } from "bullmq";
 import { pool } from "../db.js";
 import { connection, amiQueue } from "../queues/amiQueue.js";
 
-if (!connection) {
+const DEMO_PAUSED = process.env.DEMO_MODE === "PAUSED";
+
+if (DEMO_PAUSED) {
+  console.log("🛑 Worker disabled — Demo Mode PAUSED");
+}
+
+if (!connection && !DEMO_PAUSED) {
   console.warn("[AMI Worker] No Redis connection - worker will not start");
 }
 
@@ -134,7 +140,7 @@ async function createWorkOrderFromEvent(event, summary) {
   }
 }
 
-const worker = connection ? new Worker(
+const worker = (connection && !DEMO_PAUSED) ? new Worker(
   "ami",
   async (job) => {
     const startTime = Date.now();
@@ -213,7 +219,7 @@ if (worker) {
   });
 
   console.log(`[AMI Worker] Started with concurrency=${WORKER_CONCURRENCY}, listening on queue 'ami'`);
-} else {
+} else if (!DEMO_PAUSED) {
   console.warn("[AMI Worker] Worker not started - no Redis connection");
 }
 

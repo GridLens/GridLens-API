@@ -55,3 +55,4 @@ waitForPort = 5000
 SMTP_PORT = "587"
 NOTIFY_EMAIL = "cdean@gridlensenergy.com"
 DEMO_LOCK = "true"
+DEMO_MODE = "PAUSED"

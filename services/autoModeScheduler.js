@@ -115,6 +115,11 @@ export function getAutoModeStatus() {
 }
 
 export function startAutoMode() {
+  if (process.env.DEMO_MODE === "PAUSED") {
+    console.log("🛑 GridLens Demo Mode PAUSED — scheduler disabled");
+    return;
+  }
+
   if (schedulerTimer) {
     console.log("[AutoMode] Already running");
     return;
