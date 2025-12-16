@@ -73,6 +73,22 @@ gridlens-api/
   - `latestReadAt`: Last read timestamp
   - `queue`: Waiting/active/delayed/completed job counts
 
+#### Auto Mode (15-min Interval Scheduler)
+- `POST /api/ami/auto/start` - Start automatic publishing with aligned 15-min intervals:
+  - `tenantId`: Tenant identifier (default: DEMO_TENANT)
+  - `meterCount`: Meters to simulate (default: 25,000)
+  - `feederCount`: Number of feeders (default: 25)
+  - `batchSize`: Meters per job (default: 500)
+  - `intervalMinutes`: Publish interval (default: 15)
+  - `catchUpIntervals`: Missed intervals to catch up on startup (default: 4)
+- `POST /api/ami/auto/stop` - Stop automatic publishing
+- `GET /api/ami/auto/status` - Check auto mode status:
+  - `enabled`: Whether auto mode is active
+  - `config`: Current scheduler configuration
+  - `lastAlignedInterval`: Last exact :00/:15/:30/:45 timestamp
+  - `nextRunAt`: Next scheduled publish time
+  - `queue`: Current queue status
+
 ### Scale Mode Safety Limits
 - Max batch size: 500 meters per job
 - Max meter count: 25,000 per publish
