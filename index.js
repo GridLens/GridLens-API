@@ -124,9 +124,9 @@ const authMiddleware = (req, res, next) => {
     return next();
   }
 
-  // Temporary protection: Allow all GET requests (read-only), require auth for writes
+  // Temporary protection: Allow all GET/HEAD requests (read-only), require auth for writes
   // This keeps the dashboard working while blocking external write access
-  if (req.method === 'GET') {
+  if (req.method === 'GET' || req.method === 'HEAD') {
     return next();
   }
 
@@ -155,6 +155,11 @@ const authMiddleware = (req, res, next) => {
 // Apply authentication to all routes
 app.use(authMiddleware);
 app.use(express.static(path.join(__dirname, "public")));
+
+// Root route - redirect to dashboard
+app.get('/', (req, res) => {
+  res.redirect('/dashboard.html');
+});
 
 // -----------------------------
 // Mount Modular Routers
