@@ -65,15 +65,27 @@ async function checkAndRun() {
       dryRun: false
     });
 
+    if (result.ok === false || result.error) {
+      console.warn(`[AutoMode] Publish rejected: ${result.error || 'unknown error'}`);
+      lastRunResult = {
+        status: "rejected",
+        interval: currentIntervalStr,
+        error: result.error || 'Publish returned failure',
+        timestamp: new Date().toISOString()
+      };
+      return;
+    }
+
     lastRunInterval = currentIntervalStr;
     lastRunResult = {
       status: "ok",
       interval: currentIntervalStr,
-      jobsEnqueued: result.jobsEnqueued,
+      jobsEnqueued: result.batches || result.computedJobs,
+      metersProcessed: result.computedMeters,
       timestamp: new Date().toISOString()
     };
 
-    console.log(`[AutoMode] Publish complete: ${result.jobsEnqueued} jobs enqueued for ${result.computedMeters} meters`);
+    console.log(`[AutoMode] Publish complete: ${result.batches || result.computedJobs} jobs enqueued for ${result.computedMeters} meters`);
 
   } catch (err) {
     console.error(`[AutoMode] Publish failed:`, err.message);
