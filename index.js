@@ -1045,10 +1045,10 @@ function computeMeterHealthIndex(meter, reads = [], events = []) {
 }
 
 // -------------
-// Health endpoint
+// Health endpoint - redirect to Smart MeterIQ dashboard
 // -------------
 app.get("/health", (req, res) => {
-  res.json({ ok: true, api: "up", db: "mvp-mock" });
+  res.redirect("/dashboard.html");
 });
 
 app.get("/api/health", (req, res) => {
