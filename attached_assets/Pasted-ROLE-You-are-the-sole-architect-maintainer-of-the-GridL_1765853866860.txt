@@ -1,0 +1,148 @@
+ROLE: You are the sole architect + maintainer of the GridLens Smart MeterIQ demo.
+RULE #1: Do not break any existing endpoints, routes, dashboards, tables, or KPI views.
+RULE #2: Prefer additive changes. Only modify code if required to fix a confirmed bug.
+RULE #3: If you are uncertain, add new files/functions rather than refactoring existing ones.
+
+CURRENT STATE (DO NOT CHANGE)
+
+25,000-meter simulation exists and is functional.
+
+15-minute interval simulation capability exists.
+
+BullMQ ingestion works and writes into Postgres safely.
+
+KPI quickcheck returns executive-friendly output (executiveSummary, reportingSummary, etc.).
+
+Four-page dashboard exists (System Health, AMI Health & Performance, Events & Outages, FieldOps Queue).
+
+Dashboard refresh is 30s polling (data refresh, not page reload).
+
+Events (voltage-sag, comms-outage, theft) exist and must continue to work.
+
+PROBLEM TO SOLVE (THE ONLY PROBLEM)
+
+The demo still feels “manual” because Auto Mode is not guaranteed to run continuously without user action.
+
+OBJECTIVE (NON-NEGOTIABLE)
+
+Make the demo hands-free and always-on:
+
+Every 15 minutes, generate a new interval’s reads for 25,000 meters (respect all safety caps and backpressure rules already in place).
+
+After ingestion, automatically run anomaly detection from the new reads and create events.
+
+For each new event, automatically generate FieldOps work orders.
+
+Dashboards must show the effect automatically via existing polling.
+
+SAFETY / GOVERNANCE (STRICT)
+
+DO NOT replace the database schema unless missing.
+
+DO NOT rename or remove existing endpoints.
+
+DO NOT change API_BASE in the frontend.
+
+DO NOT hardcode secrets.
+
+DO NOT increase ingestion load beyond existing caps:
+
+meterCount <= 25000
+
+batchSize <= 500
+
+maxJobsPerPublishOnce <= 200
+
+backpressure: if queue depth > 500, skip interval run and log “skipped due to backpressure”
+
+Keep inserts idempotent (ON CONFLICT DO NOTHING).
+
+IMPLEMENTATION PLAN (HIGH-LEVEL ONLY)
+Step 1 — Add an “Auto Mode Scheduler” in backend (additive)
+
+Create a new file: services/autoModeScheduler.js
+
+This scheduler runs every 60 seconds and checks:
+
+If the current time has crossed a new 15-minute boundary.
+
+If yes, it triggers ONE safe ingestion cycle using the existing emulator pipeline (do not duplicate logic).
+
+It must store last_run_interval in memory (or lightweight table) so it doesn’t double-run.
+
+Step 2 — After publish completes, ensure anomaly detection runs automatically
+
+If anomaly detection already runs in worker pipeline, VERIFY it triggers after each interval.
+
+If not, add an additive function to run detection after successful batch ingestion.
+
+Auto-create events for:
+
+low voltage cluster (feeder-based)
+
+missing reads / comms outage pattern
+
+theft suspected (only if already supported; otherwise leave as manual demo trigger)
+
+Step 3 — Ensure “event → work order” happens automatically
+
+If work orders are already created from events, VERIFY it works for auto events.
+
+If not, add additive logic so:
+
+new events insert work orders exactly once (idempotent)
+
+priority rules remain executive-grade (CRITICAL/HIGH/MEDIUM)
+
+Step 4 — Add ONE monitoring endpoint (additive, no breaking change)
+
+Add GET /api/ami/auto/status?tenantId=...
+Return:
+
+autoModeEnabled (true/false)
+
+lastIntervalRunAt
+
+nextIntervalDueAt
+
+lastRunResult (ok / skipped-backpressure / failed)
+
+queue depth summary
+
+Step 5 — Keep frontend unchanged except one tiny indicator (optional)
+
+Only if needed: show “Auto Mode: ON” using the new endpoint.
+
+Do not redesign UI or change routes.
+
+REQUIRED OUTPUT (MUST PROVIDE)
+
+When finished, output:
+
+What changed (files created/modified)
+
+How to verify using EXACT commands (curl)
+
+A hands-free demo flow:
+
+Start backend → Auto runs every 15 minutes → dashboards update → events appear → FieldOps fills
+
+If you detect any risk of breaking the working system, STOP and propose the safest alternative.
+
+FINAL ACCEPTANCE TEST (MUST PASS)
+
+Without clicking any “Start” button, within the next 15-minute boundary:
+
+reads increase for DEMO_TENANT
+
+KPI quickcheck returns non-empty arrays
+
+events table gains at least one auto event (when conditions met)
+
+FieldOps queue shows at least one new work order created from an auto event
+
+Dashboard reflects changes automatically through existing 30-second polling.
+
+No endpoints removed. No KPI response contract broken.
+
+Proceed now. Do not refactor. Do not break anything. Add only what is missing.

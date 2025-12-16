@@ -37,6 +37,7 @@ import {
 } from "./services/amiEmulator.js";
 import { pool } from "./db.js";
 import "./workers/amiWorker.js";
+import { getAutoModeStatus } from "./services/autoModeScheduler.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -437,8 +438,12 @@ app.post('/api/ami/auto/stop', async (req, res) => {
 app.get('/api/ami/auto/status', async (req, res) => {
   try {
     const tenantId = req.query.tenantId || 'DEMO_TENANT';
-    const result = await getAutoSchedulerStatus(tenantId);
-    res.json(result);
+    const schedulerStatus = await getAutoSchedulerStatus(tenantId);
+    const alwaysOnStatus = getAutoModeStatus();
+    res.json({
+      ...schedulerStatus,
+      alwaysOn: alwaysOnStatus
+    });
   } catch (err) {
     console.error('Auto status error:', err.message);
     res.status(500).json({ error: err.message });
