@@ -54,4 +54,4 @@ waitForPort = 5000
 [userenv.shared]
 SMTP_PORT = "587"
 NOTIFY_EMAIL = "cdean@gridlensenergy.com"
-DEMO_LOCK = "true"
+DEMO_LOCK = "false"

@@ -298,6 +298,31 @@ app.post('/api/ami/event/voltage-sag', async (req, res) => {
 });
 
 // -----------------------------
+// Active Events Endpoint
+// -----------------------------
+app.get('/api/ami/events/active', async (req, res) => {
+  try {
+    const tenantId = req.query.tenantId || 'DEMO_TENANT';
+    const result = await pool.query(`
+      SELECT id, tenant_id, feeder_id, event_type, severity, start_at, end_at, is_active, created_at
+      FROM ami_events
+      WHERE tenant_id = $1 AND is_active = true AND end_at > NOW()
+      ORDER BY severity DESC, start_at DESC
+      LIMIT 50
+    `, [tenantId]);
+    
+    res.json({ 
+      events: result.rows,
+      count: result.rows.length,
+      source: 'live'
+    });
+  } catch (err) {
+    console.error('Active events error:', err.message);
+    res.status(500).json({ error: err.message, events: [], source: 'error' });
+  }
+});
+
+// -----------------------------
 // Demo Mode Endpoints
 // -----------------------------
 app.post('/api/ami/demo/reset', async (req, res) => {

@@ -271,11 +271,56 @@ export async function createEvent({ tenantId, feederId, eventType, durationMinut
   const event = result.rows[0];
   lastEventInjected = { ...event, injectedAt: new Date().toISOString() };
   
+  await createWorkOrderFromEvent(event, `${eventType} detected on ${feederId}`);
+  
   if (demoMode) {
     console.log(`[DEMO MODE] Event injected: ${eventType} on ${feederId} (severity: ${severity}, duration: ${durationMinutes}min)`);
   }
   
   return event;
+}
+
+async function createWorkOrderFromEvent(event, summary) {
+  try {
+    const priorityMap = {
+      'voltage-sag': parseFloat(event.severity) > 0.7 ? 'critical' : 'high',
+      'comms-outage': parseFloat(event.severity) > 0.5 ? 'high' : 'medium',
+      'theft': 'critical'
+    };
+    
+    const issueCodeMap = {
+      'voltage-sag': 'VOLT_SAG',
+      'comms-outage': 'COMM_FAIL',
+      'theft': 'THEFT_SUSP'
+    };
+    
+    const estimatedLoss = event.event_type === 'theft' ? 500 + Math.random() * 2000 :
+                          event.event_type === 'voltage-sag' ? 100 + Math.random() * 500 :
+                          50 + Math.random() * 200;
+    
+    const result = await pool.query(
+      `INSERT INTO field_work_orders 
+       (tenant_id, event_id, feeder_id, issue_type, issue_code, summary, priority, status, estimated_loss_dollars)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'open', $8)
+       RETURNING id`,
+      [
+        event.tenant_id,
+        event.id,
+        event.feeder_id,
+        event.event_type,
+        issueCodeMap[event.event_type] || 'UNKNOWN',
+        summary || `${event.event_type} detected on ${event.feeder_id}`,
+        priorityMap[event.event_type] || 'medium',
+        estimatedLoss.toFixed(2)
+      ]
+    );
+    
+    console.log(`[AMI Emulator] Created work order #${result.rows[0].id} for event ${event.id}`);
+    return result.rows[0];
+  } catch (err) {
+    console.error(`[AMI Emulator] Failed to create work order:`, err.message);
+    return null;
+  }
 }
 
 export async function getQueueStatus() {
