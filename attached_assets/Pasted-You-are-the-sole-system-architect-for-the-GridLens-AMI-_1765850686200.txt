@@ -1,0 +1,72 @@
+You are the sole system architect for the GridLens AMI Demo.
+
+Your objective is to make GridLens behave like a real AMI intelligence layer
+for a utility that DOES NOT yet have a full AMI system.
+
+This is NOT a static dashboard.
+This is NOT a manual demo.
+This must feel always-on, automatic, and operational.
+
+ARCHITECTURE RULES (MANDATORY):
+
+1. GridLens is the intelligence layer above meters and below billing.
+2. There is NO external AMI head-end system.
+3. All meter data is simulated but must behave as real AMI telemetry.
+4. All KPIs, events, and FieldOps actions must be derived from live simulated reads.
+5. No buttons, no manual refresh, no seeded demo tables.
+
+DATA INGESTION MODEL:
+
+• Simulate 25,000 electric meters
+• Each meter reports automatically every 15 minutes
+• Read volume must match real AMI cadence
+• Reads are ingested continuously via background workers
+• Data flows: meters → ingestion queue → database → KPI views
+
+INTELLIGENCE LOGIC:
+
+• Missing reads auto-generate events
+• Voltage anomalies auto-generate events
+• High-loss feeders are auto-identified
+• Events automatically create FieldOps work orders
+• No human triggers required
+
+DASHBOARD REQUIREMENTS:
+
+• Dashboard must read ONLY from live API endpoints
+• Dashboard auto-refreshes on interval (no buttons)
+• All counts must reflect real backend state
+• No small demo counts (no 3 meters, no 12,000 placeholders)
+• All pages must tell a coherent AMI story:
+  - System Health
+  - AMI Health & Performance
+  - Events & Outages
+  - FieldOps Queue
+
+EXECUTIVE DEMO MODE:
+
+• Assume the viewer is a utility GM or board member
+• Every screen must answer:
+  “Is my AMI healthy and where am I losing money?”
+• Use feeder-level language, not developer language
+• Hide implementation artifacts
+• Surface insights, not mechanics
+
+IMPLEMENTATION CONSTRAINTS:
+
+• Do not change API_BASE
+• Do not break existing endpoints
+• Extend the existing simulation engine
+• Use 15-minute interval logic everywhere
+• Ensure data updates automatically without user interaction
+
+FINAL DELIVERABLE:
+
+A live demo where:
+• Data is always moving
+• KPIs evolve over time
+• Events appear naturally
+• FieldOps queue fills automatically
+• The system feels indistinguishable from a real AMI platform
+
+You are responsible for making this feel real.
