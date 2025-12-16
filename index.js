@@ -16,6 +16,7 @@ import energyLossRouter from "./routes/energyLossRouter.js";
 import kpiEnergyLoss from "./routes/kpiEnergyLoss.js";
 import outagesRouter from "./routes/outagesRouter.js";
 import fieldOpsRouter from "./routes/fieldOpsRouter.js";
+import derivedMetricsRouter from "./routes/derivedMetricsRouter.js";
 import { 
   buildAndEnqueueReadBatches, 
   createEvent, 
@@ -171,6 +172,7 @@ app.use('/api/kpi/electric-usage', electricUsageRouter);
 app.use('/api/kpi/energy-loss', kpiEnergyLoss);
 app.use('/api/kpi/outages', outagesRouter);
 app.use('/api/fieldops', fieldOpsRouter);
+app.use('/api/kpi/derived', derivedMetricsRouter);
 
 // -----------------------------
 // AMI Emulator Endpoints
