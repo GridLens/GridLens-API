@@ -242,9 +242,15 @@ app.post('/api/ami/stop', (req, res) => {
 });
 
 // -----------------------------
+// DEMO_LOCK Safety Helper
+// -----------------------------
+const isDemoLocked = () => String(process.env.DEMO_LOCK || "").toLowerCase() === "true";
+
+// -----------------------------
 // Phase 3: Pilot Event Endpoints
 // -----------------------------
 app.post('/api/ami/event/theft', async (req, res) => {
+  if (isDemoLocked()) return res.status(423).json({ ok: false, error: "DEMO_LOCK enabled. Demo state is locked." });
   try {
     const { tenantId = 'DEMO_TENANT', feederId, durationMinutes = 60, severity = 0.8 } = req.body || {};
     if (!feederId) return res.status(400).json({ error: 'feederId required' });
@@ -257,6 +263,7 @@ app.post('/api/ami/event/theft', async (req, res) => {
 });
 
 app.post('/api/ami/event/comms-outage', async (req, res) => {
+  if (isDemoLocked()) return res.status(423).json({ ok: false, error: "DEMO_LOCK enabled. Demo state is locked." });
   try {
     const { tenantId = 'DEMO_TENANT', feederId, durationMinutes = 60, severity = 1.0 } = req.body || {};
     if (!feederId) return res.status(400).json({ error: 'feederId required' });
@@ -269,6 +276,7 @@ app.post('/api/ami/event/comms-outage', async (req, res) => {
 });
 
 app.post('/api/ami/event/voltage-sag', async (req, res) => {
+  if (isDemoLocked()) return res.status(423).json({ ok: false, error: "DEMO_LOCK enabled. Demo state is locked." });
   try {
     const { tenantId = 'DEMO_TENANT', feederId, durationMinutes = 60, severity = 0.5 } = req.body || {};
     if (!feederId) return res.status(400).json({ error: 'feederId required' });
@@ -284,6 +292,7 @@ app.post('/api/ami/event/voltage-sag', async (req, res) => {
 // Demo Mode Endpoints
 // -----------------------------
 app.post('/api/ami/demo/reset', async (req, res) => {
+  if (isDemoLocked()) return res.status(423).json({ ok: false, error: "DEMO_LOCK enabled. Demo state is locked." });
   try {
     const { tenantId = 'DEMO_TENANT', clearReads = false, clearEvents = false } = req.body || {};
     const result = await resetDemo({ tenantId, clearReads, clearEvents });
