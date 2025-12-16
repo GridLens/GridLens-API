@@ -237,6 +237,75 @@
             font-size: 3rem;
             margin-bottom: 15px;
         }
+        .executive-strip {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .exec-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 10px 16px;
+            min-width: 160px;
+        }
+        .exec-indicator .value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #f8fafc;
+        }
+        .exec-indicator .label {
+            font-size: 0.7rem;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .exec-indicator .sublabel {
+            font-size: 0.65rem;
+            color: #475569;
+        }
+        .exec-indicator.success .value { color: #22c55e; }
+        .exec-indicator.warning .value { color: #f59e0b; }
+        .exec-indicator.danger .value { color: #ef4444; }
+        .confidence-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .confidence-badge.high { background: #14532d; color: #86efac; }
+        .confidence-badge.degraded { background: #78350f; color: #fcd34d; }
+        .confidence-badge.partial { background: #7f1d1d; color: #fca5a5; }
+        .trend-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+        .trend-indicator.up { background: #7f1d1d33; color: #fca5a5; }
+        .trend-indicator.down { background: #14532d33; color: #86efac; }
+        .trend-indicator.stable { background: #1e3a5f33; color: #93c5fd; }
+        .read-age-bar {
+            display: flex;
+            height: 8px;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 6px;
+        }
+        .read-age-bar .segment { transition: width 0.3s ease; }
+        .read-age-bar .fresh { background: #22c55e; }
+        .read-age-bar .recent { background: #f59e0b; }
+        .read-age-bar .stale { background: #ef4444; }
     </style>
 </head>
 <body>
@@ -271,6 +340,8 @@
             <h1 class="page-title">System Health Overview</h1>
             <p class="page-subtitle">Fleet-wide AMI status and reporting metrics</p>
             
+            <div class="executive-strip" id="systemHealthExec"></div>
+            
             <div class="kpi-grid" id="systemHealthKpis"></div>
             
             <div class="content-grid">
@@ -299,6 +370,8 @@
         <div id="page-ami-performance" class="page">
             <h1 class="page-title">AMI Health & Performance</h1>
             <p class="page-subtitle">Read success rates, voltage compliance, and exception feeders</p>
+            
+            <div class="executive-strip" id="amiExec"></div>
             
             <div class="kpi-grid" id="amiKpis"></div>
             
@@ -430,12 +503,56 @@
         }
         
         async function refreshSystemHealth() {
-            const [quickcheck, scaleStatus] = await Promise.all([
+            const [quickcheck, scaleStatus, derived] = await Promise.all([
                 fetchApi(`/api/ami/kpi/quickcheck?tenantId=${TENANT_ID}`),
-                fetchApi(`/api/ami/scale/status?tenantId=${TENANT_ID}`)
+                fetchApi(`/api/ami/scale/status?tenantId=${TENANT_ID}`),
+                fetchApi(`/api/kpi/derived/all?tenantId=${TENANT_ID}`)
             ]);
             
             if (!quickcheck) return;
+            
+            const execStrip = document.getElementById('systemHealthExec');
+            if (derived) {
+                const mhi = derived.meterHealthIndex || {};
+                const dc = derived.dataConfidence || {};
+                const be = derived.billingExposure || {};
+                const readAge = derived.lastGoodReadAge?.distribution || {};
+                
+                execStrip.innerHTML = `
+                    <div class="exec-indicator ${mhi.statusColor || 'success'}">
+                        <div class="value">${mhi.systemHealthIndex || 85}</div>
+                        <div>
+                            <div class="label">Health Index</div>
+                            <div class="sublabel">${mhi.status || 'Good'}</div>
+                        </div>
+                    </div>
+                    <div class="exec-indicator">
+                        <span class="confidence-badge ${(dc.status || 'high').toLowerCase()}">${dc.status || 'High'}</span>
+                        <div>
+                            <div class="label">Data Confidence</div>
+                            <div class="sublabel">${dc.coveragePct || 100}% coverage</div>
+                        </div>
+                    </div>
+                    <div class="exec-indicator ${be.estimatedDailyExposure > 500 ? 'danger' : be.estimatedDailyExposure > 100 ? 'warning' : 'success'}">
+                        <div class="value">$${(be.estimatedDailyExposure || 0).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</div>
+                        <div>
+                            <div class="label">Est. Daily Exposure</div>
+                            <div class="sublabel">${be.affectedMeterCount || 0} affected meters</div>
+                        </div>
+                    </div>
+                    <div class="exec-indicator">
+                        <div>
+                            <div class="label">Read Age Distribution</div>
+                            <div class="read-age-bar">
+                                <div class="segment fresh" style="width: ${readAge.within15min?.pct || 100}%"></div>
+                                <div class="segment recent" style="width: ${readAge.within60min?.pct || 0}%"></div>
+                                <div class="segment stale" style="width: ${readAge.over60min?.pct || 0}%"></div>
+                            </div>
+                            <div class="sublabel">${readAge.within15min?.pct || 100}% fresh | ${readAge.over60min?.pct || 0}% stale</div>
+                        </div>
+                    </div>
+                `;
+            }
             
             const kpis = document.getElementById('systemHealthKpis');
             const rs = quickcheck.reportingSummary || {};
@@ -525,8 +642,54 @@
         }
         
         async function refreshAmiPerformance() {
-            const quickcheck = await fetchApi(`/api/ami/kpi/quickcheck?tenantId=${TENANT_ID}`);
+            const [quickcheck, derived] = await Promise.all([
+                fetchApi(`/api/ami/kpi/quickcheck?tenantId=${TENANT_ID}`),
+                fetchApi(`/api/kpi/derived/all?tenantId=${TENANT_ID}`)
+            ]);
             if (!quickcheck) return;
+            
+            const execStrip = document.getElementById('amiExec');
+            if (derived) {
+                const ev = derived.exceptionVelocity || {};
+                const mhi = derived.meterHealthIndex || {};
+                const readAge = derived.lastGoodReadAge || {};
+                const dc = derived.dataConfidence || {};
+                
+                const trendClass = ev.trend === 'increasing' ? 'up' : ev.trend === 'decreasing' ? 'down' : 'stable';
+                
+                execStrip.innerHTML = `
+                    <div class="exec-indicator ${mhi.statusColor || 'success'}">
+                        <div class="value">${mhi.systemHealthIndex || 85}</div>
+                        <div>
+                            <div class="label">Meter Health Index</div>
+                            <div class="sublabel">${mhi.distribution?.critical || 0} critical</div>
+                        </div>
+                    </div>
+                    <div class="exec-indicator ${ev.severity === 'critical' ? 'danger' : ev.severity === 'elevated' ? 'warning' : 'success'}">
+                        <div class="value">${ev.currentIntervalCount || 0}</div>
+                        <div>
+                            <div class="label">Exception Velocity</div>
+                            <div class="sublabel">
+                                <span class="trend-indicator ${trendClass}">${ev.trendIcon || '→'} ${ev.changeVsPriorPct || 0}% vs prior</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="exec-indicator">
+                        <div class="value">${readAge.freshReadsPct || 100}%</div>
+                        <div>
+                            <div class="label">Fresh Reads</div>
+                            <div class="sublabel">&lt;15 min old</div>
+                        </div>
+                    </div>
+                    <div class="exec-indicator">
+                        <span class="confidence-badge ${(dc.status || 'high').toLowerCase()}">${dc.status || 'High'}</span>
+                        <div>
+                            <div class="label">Data Confidence</div>
+                            <div class="sublabel">${dc.message || 'All systems nominal'}</div>
+                        </div>
+                    </div>
+                `;
+            }
             
             const kpis = document.getElementById('amiKpis');
             const es = quickcheck.executiveSummary || {};

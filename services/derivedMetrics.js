@@ -1,4 +1,4 @@
-import pool from '../db.js';
+import { pool } from '../db.js';
 
 const DEFAULT_TARIFF_PER_KWH = 0.12;
 
@@ -260,25 +260,26 @@ export async function getExceptionVelocity(tenantId) {
 
 export async function getEstimatedBillingExposure(tenantId, tariffPerKwh = DEFAULT_TARIFF_PER_KWH) {
   const query = `
-    WITH problem_meters AS (
-      SELECT DISTINCT meter_id
-      FROM (
-        SELECT meter_id FROM ami_events ae
-        WHERE tenant_id = $1 AND is_active = true
-        UNION
-        SELECT meter_id FROM field_work_orders
-        WHERE tenant_id = $1 AND status IN ('open', 'assigned', 'in_progress')
-      ) pm
+    WITH problem_feeders AS (
+      SELECT DISTINCT feeder_id
+      FROM ami_events
+      WHERE tenant_id = $1 AND is_active = true
     ),
-    affected_usage AS (
+    problem_meters_from_wo AS (
+      SELECT DISTINCT meter_id
+      FROM field_work_orders
+      WHERE tenant_id = $1 AND status IN ('open', 'assigned', 'in_progress')
+    ),
+    affected_by_feeder AS (
       SELECT 
         COUNT(DISTINCT mr.meter_id) as affected_meter_count,
         COALESCE(SUM(mr.kwh), 0) as total_affected_kwh,
         AVG(mr.kwh) as avg_kwh_per_read
       FROM meter_reads_electric mr
-      JOIN problem_meters pm ON mr.meter_id = pm.meter_id
       WHERE mr.tenant_id = $1
         AND mr.read_at > NOW() - INTERVAL '24 hours'
+        AND (mr.feeder_id IN (SELECT feeder_id FROM problem_feeders)
+             OR mr.meter_id IN (SELECT meter_id FROM problem_meters_from_wo))
     ),
     existing_exposure AS (
       SELECT COALESCE(SUM(estimated_loss_dollars), 0) as fieldops_exposure
@@ -286,11 +287,11 @@ export async function getEstimatedBillingExposure(tenantId, tariffPerKwh = DEFAU
       WHERE tenant_id = $1 AND status IN ('open', 'assigned', 'in_progress')
     )
     SELECT 
-      au.affected_meter_count,
-      ROUND(au.total_affected_kwh::numeric, 2) as total_affected_kwh,
-      ROUND(au.avg_kwh_per_read::numeric, 2) as avg_kwh_per_read,
+      af.affected_meter_count,
+      ROUND(af.total_affected_kwh::numeric, 2) as total_affected_kwh,
+      ROUND(af.avg_kwh_per_read::numeric, 2) as avg_kwh_per_read,
       ROUND(ee.fieldops_exposure::numeric, 2) as fieldops_exposure
-    FROM affected_usage au, existing_exposure ee
+    FROM affected_by_feeder af, existing_exposure ee
   `;
   
   const result = await pool.query(query, [tenantId]);
