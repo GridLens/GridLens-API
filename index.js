@@ -29,7 +29,11 @@ import {
   getDemoMode,
   publishScaleMode,
   getScaleStatus,
-  checkBackpressure
+  checkBackpressure,
+  startAutoScheduler,
+  stopAutoScheduler,
+  getAutoSchedulerStatus,
+  getAlignedIntervalTimestamp
 } from "./services/amiEmulator.js";
 import { pool } from "./db.js";
 import "./workers/amiWorker.js";
@@ -354,6 +358,59 @@ app.get('/api/ami/scale/status', async (req, res) => {
     res.json(result);
   } catch (err) {
     console.error('Scale status error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -----------------------------
+// Auto Mode Endpoints (15-min interval scheduler)
+// -----------------------------
+app.post('/api/ami/auto/start', async (req, res) => {
+  if (isDemoLocked()) return res.status(423).json({ ok: false, error: "DEMO_LOCK enabled. Demo state is locked." });
+  try {
+    const { 
+      tenantId = 'DEMO_TENANT', 
+      meterCount = 25000, 
+      feederCount = 25, 
+      batchSize = 500, 
+      intervalMinutes = 15,
+      catchUpIntervals = 4
+    } = req.body || {};
+    
+    const result = await startAutoScheduler({
+      tenantId,
+      meterCount,
+      feederCount,
+      batchSize,
+      intervalMinutes,
+      catchUpIntervals
+    });
+    
+    res.json(result);
+  } catch (err) {
+    console.error('Auto start error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/ami/auto/stop', async (req, res) => {
+  if (isDemoLocked()) return res.status(423).json({ ok: false, error: "DEMO_LOCK enabled. Demo state is locked." });
+  try {
+    const result = await stopAutoScheduler();
+    res.json(result);
+  } catch (err) {
+    console.error('Auto stop error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/ami/auto/status', async (req, res) => {
+  try {
+    const tenantId = req.query.tenantId || 'DEMO_TENANT';
+    const result = await getAutoSchedulerStatus(tenantId);
+    res.json(result);
+  } catch (err) {
+    console.error('Auto status error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

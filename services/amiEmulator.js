@@ -6,6 +6,28 @@ let lastPublishAt = null;
 let lastEventInjected = null;
 let kpiSnapshotBeforeEvent = null;
 
+let autoSchedulerTimer = null;
+let autoSchedulerConfig = null;
+let autoSchedulerEnabled = false;
+let schedulerLock = false;
+
+export function getAlignedIntervalTimestamp(intervalMinutes = 15) {
+  const now = new Date();
+  const ms = now.getTime();
+  const intervalMs = intervalMinutes * 60 * 1000;
+  return new Date(Math.floor(ms / intervalMs) * intervalMs);
+}
+
+export function getNextAlignedInterval(intervalMinutes = 15) {
+  const aligned = getAlignedIntervalTimestamp(intervalMinutes);
+  return new Date(aligned.getTime() + intervalMinutes * 60 * 1000);
+}
+
+export function getMsUntilNextInterval(intervalMinutes = 15) {
+  const next = getNextAlignedInterval(intervalMinutes);
+  return Math.max(0, next.getTime() - Date.now());
+}
+
 export function setDemoMode(enabled) {
   demoMode = enabled;
   if (demoMode) {
@@ -621,4 +643,290 @@ export async function getScaleStatus(tenantId) {
     console.error("Scale status error:", err.message);
     return { error: err.message };
   }
+}
+
+const AUTO_LIMITS = {
+  maxBatchSize: 500,
+  maxMeterCount: 25000,
+  maxJobsPerTick: 50,
+  maxQueueDepth: 500,
+  workerConcurrency: 8
+};
+
+export async function publishTick({
+  tenantId,
+  alignedReadAt,
+  meterCount,
+  feederCount,
+  batchSize
+}) {
+  const backpressure = await checkBackpressure();
+  if (backpressure.overLimit) {
+    console.warn(`[AUTO] Skipping tick - backpressure: waiting=${backpressure.waiting} delayed=${backpressure.delayed}`);
+    return { ok: false, skipped: true, reason: "backpressure", ...backpressure };
+  }
+  
+  const effectiveBatchSize = Math.min(batchSize, AUTO_LIMITS.maxBatchSize);
+  const effectiveMeterCount = Math.min(meterCount, AUTO_LIMITS.maxMeterCount);
+  const effectiveFeederCount = Math.max(10, Math.min(feederCount, 40));
+  
+  const estimatedJobs = Math.ceil(effectiveMeterCount / effectiveBatchSize);
+  if (estimatedJobs > AUTO_LIMITS.maxJobsPerTick) {
+    console.warn(`[AUTO] Job count ${estimatedJobs} exceeds limit ${AUTO_LIMITS.maxJobsPerTick}`);
+  }
+  
+  const metersPerFeeder = Math.ceil(effectiveMeterCount / effectiveFeederCount);
+  
+  const feederEvents = {};
+  for (let f = 1; f <= effectiveFeederCount; f++) {
+    const feederId = `FEEDER_${f}`;
+    feederEvents[feederId] = await getActiveEvents(tenantId, feederId, alignedReadAt);
+  }
+  
+  let totalQueued = 0;
+  let batchCount = 0;
+  let meterIndex = 1;
+  
+  for (let f = 1; f <= effectiveFeederCount && meterIndex <= effectiveMeterCount; f++) {
+    const feederId = `FEEDER_${f}`;
+    const events = feederEvents[feederId] || [];
+    
+    const metersForThisFeeder = Math.min(metersPerFeeder, effectiveMeterCount - meterIndex + 1);
+    
+    for (let batch = 0; batch < Math.ceil(metersForThisFeeder / effectiveBatchSize) && meterIndex <= effectiveMeterCount; batch++) {
+      const readings = [];
+      const batchEnd = Math.min(meterIndex + effectiveBatchSize, meterIndex + metersForThisFeeder - (batch * effectiveBatchSize));
+      
+      for (; meterIndex < batchEnd && meterIndex <= effectiveMeterCount; meterIndex++) {
+        let reading = generateSyntheticMeterReading(tenantId, meterIndex, feederId, alignedReadAt);
+        reading = applyEventEffects(reading, events);
+        
+        if (!reading.skip) {
+          readings.push(reading);
+        }
+      }
+      
+      if (readings.length > 0) {
+        await amiQueue.add("ingest-batch", {
+          tenantId,
+          feederId,
+          readings,
+          intervalMinutes: 15,
+          timestamp: alignedReadAt.toISOString(),
+          scaleMode: true,
+          autoMode: true
+        });
+        
+        totalQueued += readings.length;
+        batchCount++;
+      }
+    }
+  }
+  
+  lastPublishAt = alignedReadAt.toISOString();
+  
+  console.log(`[AUTO] Published tick for ${alignedReadAt.toISOString()} | ${totalQueued} meters | ${batchCount} jobs`);
+  
+  return {
+    ok: true,
+    queued: totalQueued,
+    batches: batchCount,
+    timestamp: alignedReadAt.toISOString()
+  };
+}
+
+async function getMissingIntervals(tenantId, intervalMinutes, catchUpCount) {
+  const currentAligned = getAlignedIntervalTimestamp(intervalMinutes);
+  const missing = [];
+  
+  try {
+    const result = await pool.query(
+      `SELECT DISTINCT DATE_TRUNC('minute', read_at) as interval_time
+       FROM meter_reads_electric
+       WHERE tenant_id = $1
+         AND read_at >= $2
+       ORDER BY interval_time DESC`,
+      [tenantId, new Date(currentAligned.getTime() - catchUpCount * intervalMinutes * 60 * 1000).toISOString()]
+    );
+    
+    const existingIntervals = new Set(
+      result.rows.map(r => new Date(r.interval_time).getTime())
+    );
+    
+    for (let i = 0; i < catchUpCount; i++) {
+      const intervalTime = new Date(currentAligned.getTime() - i * intervalMinutes * 60 * 1000);
+      if (!existingIntervals.has(intervalTime.getTime())) {
+        missing.push(intervalTime);
+      }
+    }
+    
+    return missing.reverse();
+  } catch (err) {
+    console.error("[AUTO] Error checking missing intervals:", err.message);
+    return [];
+  }
+}
+
+async function runSchedulerTick() {
+  if (schedulerLock) {
+    console.log("[AUTO] Scheduler tick skipped - already running");
+    return;
+  }
+  
+  if (!autoSchedulerEnabled || !autoSchedulerConfig) {
+    console.log("[AUTO] Scheduler tick skipped - not enabled");
+    return;
+  }
+  
+  schedulerLock = true;
+  
+  try {
+    const { tenantId, meterCount, feederCount, batchSize, intervalMinutes } = autoSchedulerConfig;
+    const alignedReadAt = getAlignedIntervalTimestamp(intervalMinutes);
+    
+    console.log(`[AUTO] Running scheduler tick for interval ${alignedReadAt.toISOString()}`);
+    
+    await publishTick({
+      tenantId,
+      alignedReadAt,
+      meterCount,
+      feederCount,
+      batchSize
+    });
+  } catch (err) {
+    console.error("[AUTO] Scheduler tick error:", err.message);
+  } finally {
+    schedulerLock = false;
+  }
+}
+
+function scheduleNextTick() {
+  if (!autoSchedulerEnabled || !autoSchedulerConfig) {
+    return;
+  }
+  
+  const { intervalMinutes } = autoSchedulerConfig;
+  const msUntilNext = getMsUntilNextInterval(intervalMinutes);
+  
+  const nextTime = new Date(Date.now() + msUntilNext);
+  console.log(`[AUTO] Next tick scheduled at ${nextTime.toISOString()} (in ${Math.round(msUntilNext / 1000)}s)`);
+  
+  if (autoSchedulerTimer) {
+    clearTimeout(autoSchedulerTimer);
+  }
+  
+  autoSchedulerTimer = setTimeout(async () => {
+    await runSchedulerTick();
+    scheduleNextTick();
+  }, msUntilNext + 1000);
+}
+
+export async function startAutoScheduler({
+  tenantId = "DEMO_TENANT",
+  meterCount = 25000,
+  feederCount = 25,
+  batchSize = 500,
+  intervalMinutes = 15,
+  catchUpIntervals = 4
+}) {
+  if (autoSchedulerEnabled) {
+    console.log("[AUTO] Scheduler already running, stopping first...");
+    await stopAutoScheduler();
+  }
+  
+  autoSchedulerConfig = {
+    tenantId,
+    meterCount: Math.min(meterCount, AUTO_LIMITS.maxMeterCount),
+    feederCount: Math.max(10, Math.min(feederCount, 40)),
+    batchSize: Math.min(batchSize, AUTO_LIMITS.maxBatchSize),
+    intervalMinutes,
+    catchUpIntervals,
+    startedAt: new Date().toISOString()
+  };
+  
+  autoSchedulerEnabled = true;
+  
+  console.log(`[AUTO] Starting auto scheduler for ${tenantId}:`, autoSchedulerConfig);
+  
+  if (catchUpIntervals > 0) {
+    const missingIntervals = await getMissingIntervals(tenantId, intervalMinutes, catchUpIntervals);
+    
+    if (missingIntervals.length > 0) {
+      console.log(`[AUTO] Catching up ${missingIntervals.length} missing intervals...`);
+      
+      for (const interval of missingIntervals) {
+        const backpressure = await checkBackpressure();
+        if (backpressure.overLimit) {
+          console.warn("[AUTO] Stopping catch-up due to backpressure");
+          break;
+        }
+        
+        await publishTick({
+          tenantId,
+          alignedReadAt: interval,
+          meterCount: autoSchedulerConfig.meterCount,
+          feederCount: autoSchedulerConfig.feederCount,
+          batchSize: autoSchedulerConfig.batchSize
+        });
+        
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+  }
+  
+  await runSchedulerTick();
+  
+  scheduleNextTick();
+  
+  const nextRun = getNextAlignedInterval(intervalMinutes);
+  
+  return {
+    ok: true,
+    mode: "auto",
+    nextRunAt: nextRun.toISOString(),
+    config: autoSchedulerConfig
+  };
+}
+
+export async function stopAutoScheduler() {
+  if (autoSchedulerTimer) {
+    clearTimeout(autoSchedulerTimer);
+    autoSchedulerTimer = null;
+  }
+  
+  autoSchedulerEnabled = false;
+  const stoppedConfig = autoSchedulerConfig;
+  autoSchedulerConfig = null;
+  schedulerLock = false;
+  
+  console.log("[AUTO] Scheduler stopped");
+  
+  return {
+    ok: true,
+    stoppedConfig
+  };
+}
+
+export async function getAutoSchedulerStatus(tenantId) {
+  const lastReadResult = await pool.query(
+    `SELECT MAX(read_at) as latest_read_at FROM meter_reads_electric WHERE tenant_id = $1`,
+    [tenantId]
+  ).catch(() => ({ rows: [{}] }));
+  
+  const queueStatus = await checkBackpressure();
+  const currentAligned = getAlignedIntervalTimestamp(autoSchedulerConfig?.intervalMinutes || 15);
+  
+  return {
+    enabled: autoSchedulerEnabled,
+    config: autoSchedulerConfig,
+    lastAlignedInterval: currentAligned.toISOString(),
+    latestReadAt: lastReadResult.rows[0]?.latest_read_at || null,
+    nextRunAt: autoSchedulerEnabled ? getNextAlignedInterval(autoSchedulerConfig?.intervalMinutes || 15).toISOString() : null,
+    queue: {
+      waiting: queueStatus.waiting || 0,
+      delayed: queueStatus.delayed || 0,
+      active: queueStatus.active || 0,
+      overLimit: queueStatus.overLimit
+    }
+  };
 }

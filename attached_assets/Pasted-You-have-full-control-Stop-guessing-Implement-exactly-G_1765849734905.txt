@@ -1,0 +1,102 @@
+You have full control. Stop guessing. Implement exactly.
+
+GOAL
+Make the AMI emulator behave like a real interval AMI data plane:
+- 25,000 meters
+- 15-minute intervals
+- automatic continuous operation (no manual curl required)
+- event effects (theft, comms-outage, voltage-sag) reflected in KPIs
+- front-end dashboard always shows fresh interval data
+
+CURRENT STATE
+- BullMQ ingestion exists and writes to public.meter_reads_electric
+- /api/ami/publish-once works
+- /api/ami/kpi/quickcheck works
+- /api/ami/scale/status works
+- KPI views query ONLY meter_reads_electric
+- Events stored in ami_events table
+
+NON-NEGOTIABLE REQUIREMENTS
+1) True 15-minute cadence:
+   - reads MUST align exactly to quarter-hour boundaries:
+     :00, :15, :30, :45 (UTC is fine, but be consistent)
+   - A publish cycle must generate reads for a single aligned read_at timestamp.
+
+2) Automatic mode (no curl):
+   - Add a persistent scheduler that runs every 15 minutes.
+   - It must survive route calls and not require a user to keep clicking.
+   - Use BullMQ repeatable jobs OR a safe in-process scheduler with guard locks.
+   - There must be EXACTLY ONE scheduler active (prevent duplicates on restart).
+
+3) “Catch-up” on startup:
+   - When the server starts, if the last interval is missing, enqueue catch-up for the last N intervals (default N=4).
+   - Catch-up must respect caps and backpressure.
+
+4) Backpressure and caps (must enforce):
+   - batchSize max = 500
+   - meterCount max = 25000
+   - maxJobsPerTick = 50 (25,000 / 500)
+   - NEVER enqueue if queue waiting+delayed > 500 -> return 429 or skip tick safely
+   - Worker concurrency: 8
+   - DB writes are idempotent: INSERT ... ON CONFLICT DO NOTHING
+
+5) Data correctness / realism:
+   - kwh baseline curve + noise
+   - voltage baseline 118–124 with occasional anomalies
+   - Apply active events by feeder_id during generation:
+     - theft: reduce kwh by severity (e.g., kwh *= (1 - severity))
+     - comms-outage: skip reads probabilistically (Math.random() < severity)
+     - voltage-sag: drop voltage into 90–114 range based on severity
+
+6) KPI outputs must be interval-aware:
+   - quickcheck should compute “reportingSummary” for the latest aligned interval
+   - staleMetersBuckets MUST use latest interval time as reference (not wall clock confusion)
+   - If reads exist for latest interval, staleOver15m should be 0.
+
+7) Frontend integration:
+   - The backend endpoint used by the dashboard must be the same:
+     GET /api/ami/kpi/quickcheck?tenantId=DEMO_TENANT
+   - Ensure CORS and auth behavior does not break app.gridlensenergy.com.
+   - If authorization is required for publish/event endpoints, quickcheck must remain readable.
+
+NEW ENDPOINTS (REQUIRED)
+A) POST /api/ami/auto/start
+   Body: { tenantId, meterCount=25000, feederCount=25, batchSize=500, intervalMinutes=15, catchUpIntervals=4 }
+   Behavior:
+   - registers a repeatable BullMQ job (preferred) or starts one scheduler safely
+   - stores the configuration so it persists
+   - returns { ok:true, mode:"auto", nextRunAt, config }
+
+B) POST /api/ami/auto/stop
+   Behavior:
+   - removes repeatable job / stops scheduler safely
+   - returns { ok:true }
+
+C) GET /api/ami/auto/status?tenantId=...
+   Returns:
+   - enabled true/false
+   - config
+   - lastAlignedInterval
+   - latestReadAt in DB
+   - queue depth
+
+IMPLEMENTATION NOTES (DO THIS)
+1) Create a utility: getAlignedIntervalTimestamp(intervalMinutes)
+   - returns Date aligned to nearest past boundary (floor to :00/:15/:30/:45)
+2) Emulator publishTick(tenantId, alignedReadAt, meterCount, feederCount, batchSize)
+   - enqueues exactly (meterCount/batchSize) jobs, each job includes read_at = alignedReadAt
+3) Worker writes read_at exactly as provided (no NOW() override)
+4) Ensure repeatable job uses fixed key (tenantId) so duplicates cannot occur.
+
+DELIVERABLES (MUST OUTPUT)
+1) List files changed and why
+2) Provide exact commands:
+   - Start auto mode
+   - Check status
+   - Verify KPIs
+3) Provide a 3-step “demo” flow that requires ZERO manual publish:
+   - start auto
+   - inject an event
+   - refresh dashboard and show effect
+
+DO NOT ASK ME QUESTIONS. IMPLEMENT.
