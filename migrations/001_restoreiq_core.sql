@@ -1,8 +1,9 @@
 -- =============================================================================
 -- GridLens RestoreIQ Core Schema Migration
 -- Version: 001
--- Description: Creates all RestoreIQ tables for outage management, fault zone
---              ranking, restoration options, crew recommendations, and replays
+-- Description: Creates restoreiq schema and all RestoreIQ tables for outage 
+--              management, fault zone ranking, restoration options, crew 
+--              recommendations, and replays
 -- Environment: DEV (apply to PILOT/PROD only with explicit approval)
 -- =============================================================================
 
@@ -12,10 +13,17 @@
 BEGIN;
 
 -- -----------------------------------------------------------------------------
--- 1. EVENTS TABLE (extends existing or creates new)
+-- CREATE DEDICATED SCHEMA
+-- -----------------------------------------------------------------------------
+CREATE SCHEMA IF NOT EXISTS restoreiq;
+
+COMMENT ON SCHEMA restoreiq IS 'GridLens RestoreIQ module - outage restoration intelligence';
+
+-- -----------------------------------------------------------------------------
+-- 1. EVENTS TABLE
 -- Core event tracking with canonical and provisional outage linkage
 -- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS events (
+CREATE TABLE IF NOT EXISTS restoreiq.events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id VARCHAR(64) NOT NULL,
     event_type VARCHAR(64) NOT NULL,
@@ -37,15 +45,15 @@ CREATE TABLE IF NOT EXISTS events (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON TABLE events IS 'Core telemetry events with linkage to canonical and provisional outages';
-COMMENT ON COLUMN events.canon_outage_id IS 'FK to confirmed/canonical outage record';
-COMMENT ON COLUMN events.prov_outage_id IS 'FK to provisional (unconfirmed) outage record';
+COMMENT ON TABLE restoreiq.events IS 'Core telemetry events with linkage to canonical and provisional outages';
+COMMENT ON COLUMN restoreiq.events.canon_outage_id IS 'FK to confirmed/canonical outage record';
+COMMENT ON COLUMN restoreiq.events.prov_outage_id IS 'FK to provisional (unconfirmed) outage record';
 
 -- -----------------------------------------------------------------------------
 -- 2. OUTAGES TABLE
 -- Canonical confirmed outage records
 -- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS outages (
+CREATE TABLE IF NOT EXISTS restoreiq.outages (
     outage_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id VARCHAR(64) NOT NULL,
     outage_type VARCHAR(64) NOT NULL DEFAULT 'unplanned',
@@ -76,16 +84,16 @@ CREATE TABLE IF NOT EXISTS outages (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON TABLE outages IS 'Canonical confirmed outage records with reliability metrics';
+COMMENT ON TABLE restoreiq.outages IS 'Canonical confirmed outage records with reliability metrics';
 
 -- -----------------------------------------------------------------------------
 -- 3. OUTAGE_IMPACTS TABLE
 -- Detailed impact tracking per asset/customer
 -- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS outage_impacts (
+CREATE TABLE IF NOT EXISTS restoreiq.outage_impacts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id VARCHAR(64) NOT NULL,
-    outage_id UUID NOT NULL REFERENCES outages(outage_id) ON DELETE CASCADE,
+    outage_id UUID NOT NULL REFERENCES restoreiq.outages(outage_id) ON DELETE CASCADE,
     impact_type VARCHAR(64) NOT NULL,
     asset_type VARCHAR(64),
     asset_id VARCHAR(128),
@@ -101,16 +109,16 @@ CREATE TABLE IF NOT EXISTS outage_impacts (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON TABLE outage_impacts IS 'Granular impact tracking per outage, asset, or customer segment';
+COMMENT ON TABLE restoreiq.outage_impacts IS 'Granular impact tracking per outage, asset, or customer segment';
 
 -- -----------------------------------------------------------------------------
 -- 4. RECOMMENDATION_RUNS TABLE
 -- Audit trail for all AI/analytical recommendation generations
 -- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS recommendation_runs (
+CREATE TABLE IF NOT EXISTS restoreiq.recommendation_runs (
     run_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id VARCHAR(64) NOT NULL,
-    outage_id UUID REFERENCES outages(outage_id) ON DELETE SET NULL,
+    outage_id UUID REFERENCES restoreiq.outages(outage_id) ON DELETE SET NULL,
     run_type VARCHAR(64) NOT NULL,
     run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     input_params JSONB,
@@ -126,13 +134,13 @@ CREATE TABLE IF NOT EXISTS recommendation_runs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON TABLE recommendation_runs IS 'Audit trail for all recommendation generation runs';
+COMMENT ON TABLE restoreiq.recommendation_runs IS 'Audit trail for all recommendation generation runs';
 
 -- -----------------------------------------------------------------------------
 -- 5. PROVISIONAL_OUTAGES TABLE
 -- Unconfirmed/provisional outage clusters awaiting operator validation
 -- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS provisional_outages (
+CREATE TABLE IF NOT EXISTS restoreiq.provisional_outages (
     prov_outage_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id VARCHAR(64) NOT NULL,
     status VARCHAR(32) NOT NULL DEFAULT 'pending',
@@ -146,7 +154,7 @@ CREATE TABLE IF NOT EXISTS provisional_outages (
     geographic_center_lon NUMERIC(10, 7),
     first_event_at TIMESTAMPTZ,
     last_event_at TIMESTAMPTZ,
-    promoted_to_outage_id UUID REFERENCES outages(outage_id) ON DELETE SET NULL,
+    promoted_to_outage_id UUID REFERENCES restoreiq.outages(outage_id) ON DELETE SET NULL,
     promoted_at TIMESTAMPTZ,
     promoted_by VARCHAR(128),
     dismissed_at TIMESTAMPTZ,
@@ -157,13 +165,13 @@ CREATE TABLE IF NOT EXISTS provisional_outages (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON TABLE provisional_outages IS 'Provisional outage clusters pending operator confirmation';
+COMMENT ON TABLE restoreiq.provisional_outages IS 'Provisional outage clusters pending operator confirmation';
 
 -- -----------------------------------------------------------------------------
 -- 6. FAULT_ZONES TABLE
 -- Geographic/topological fault zone definitions
 -- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS fault_zones (
+CREATE TABLE IF NOT EXISTS restoreiq.fault_zones (
     zone_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id VARCHAR(64) NOT NULL,
     zone_name VARCHAR(128) NOT NULL,
@@ -186,18 +194,18 @@ CREATE TABLE IF NOT EXISTS fault_zones (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON TABLE fault_zones IS 'Fault zone definitions for localization and ranking';
+COMMENT ON TABLE restoreiq.fault_zones IS 'Fault zone definitions for localization and ranking';
 
 -- -----------------------------------------------------------------------------
 -- 7. FAULT_ZONE_RANKINGS TABLE
 -- Per-run fault zone ranking results
 -- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS fault_zone_rankings (
+CREATE TABLE IF NOT EXISTS restoreiq.fault_zone_rankings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id VARCHAR(64) NOT NULL,
-    run_id UUID NOT NULL REFERENCES recommendation_runs(run_id) ON DELETE CASCADE,
-    outage_id UUID REFERENCES outages(outage_id) ON DELETE SET NULL,
-    zone_id UUID REFERENCES fault_zones(zone_id) ON DELETE SET NULL,
+    run_id UUID NOT NULL REFERENCES restoreiq.recommendation_runs(run_id) ON DELETE CASCADE,
+    outage_id UUID REFERENCES restoreiq.outages(outage_id) ON DELETE SET NULL,
+    zone_id UUID REFERENCES restoreiq.fault_zones(zone_id) ON DELETE SET NULL,
     zone_name VARCHAR(128),
     rank_position INTEGER NOT NULL,
     confidence_score NUMERIC(4, 3),
@@ -210,17 +218,17 @@ CREATE TABLE IF NOT EXISTS fault_zone_rankings (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON TABLE fault_zone_rankings IS 'Ranked fault zones per recommendation run';
+COMMENT ON TABLE restoreiq.fault_zone_rankings IS 'Ranked fault zones per recommendation run';
 
 -- -----------------------------------------------------------------------------
 -- 8. RESTORATION_OPTIONS TABLE
 -- Generated restoration strategy options
 -- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS restoration_options (
+CREATE TABLE IF NOT EXISTS restoreiq.restoration_options (
     option_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id VARCHAR(64) NOT NULL,
-    run_id UUID NOT NULL REFERENCES recommendation_runs(run_id) ON DELETE CASCADE,
-    outage_id UUID REFERENCES outages(outage_id) ON DELETE SET NULL,
+    run_id UUID NOT NULL REFERENCES restoreiq.recommendation_runs(run_id) ON DELETE CASCADE,
+    outage_id UUID REFERENCES restoreiq.outages(outage_id) ON DELETE SET NULL,
     option_rank INTEGER NOT NULL,
     option_type VARCHAR(64) NOT NULL,
     option_name VARCHAR(256),
@@ -240,14 +248,14 @@ CREATE TABLE IF NOT EXISTS restoration_options (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON TABLE restoration_options IS 'Generated restoration strategy options (advisory only)';
-COMMENT ON COLUMN restoration_options.advisory_notes IS 'Advisory notes - operator validation required';
+COMMENT ON TABLE restoreiq.restoration_options IS 'Generated restoration strategy options (advisory only)';
+COMMENT ON COLUMN restoreiq.restoration_options.advisory_notes IS 'Advisory notes - operator validation required';
 
 -- -----------------------------------------------------------------------------
 -- 9. CREWS TABLE
 -- Field crew roster
 -- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS crews (
+CREATE TABLE IF NOT EXISTS restoreiq.crews (
     crew_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id VARCHAR(64) NOT NULL,
     crew_name VARCHAR(128) NOT NULL,
@@ -270,16 +278,16 @@ CREATE TABLE IF NOT EXISTS crews (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON TABLE crews IS 'Field crew roster and status tracking';
+COMMENT ON TABLE restoreiq.crews IS 'Field crew roster and status tracking';
 
 -- -----------------------------------------------------------------------------
 -- 10. CREW_SKILLS TABLE
 -- Crew skill/certification matrix
 -- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS crew_skills (
+CREATE TABLE IF NOT EXISTS restoreiq.crew_skills (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id VARCHAR(64) NOT NULL,
-    crew_id UUID NOT NULL REFERENCES crews(crew_id) ON DELETE CASCADE,
+    crew_id UUID NOT NULL REFERENCES restoreiq.crews(crew_id) ON DELETE CASCADE,
     skill_name VARCHAR(128) NOT NULL,
     skill_category VARCHAR(64),
     proficiency_level VARCHAR(32) DEFAULT 'standard',
@@ -289,19 +297,19 @@ CREATE TABLE IF NOT EXISTS crew_skills (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON TABLE crew_skills IS 'Crew skill and certification matrix';
+COMMENT ON TABLE restoreiq.crew_skills IS 'Crew skill and certification matrix';
 
 -- -----------------------------------------------------------------------------
 -- 11. CREW_RECOMMENDATIONS TABLE
 -- Generated crew assignment recommendations
 -- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS crew_recommendations (
+CREATE TABLE IF NOT EXISTS restoreiq.crew_recommendations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id VARCHAR(64) NOT NULL,
-    run_id UUID NOT NULL REFERENCES recommendation_runs(run_id) ON DELETE CASCADE,
-    outage_id UUID REFERENCES outages(outage_id) ON DELETE SET NULL,
-    option_id UUID REFERENCES restoration_options(option_id) ON DELETE SET NULL,
-    crew_id UUID REFERENCES crews(crew_id) ON DELETE SET NULL,
+    run_id UUID NOT NULL REFERENCES restoreiq.recommendation_runs(run_id) ON DELETE CASCADE,
+    outage_id UUID REFERENCES restoreiq.outages(outage_id) ON DELETE SET NULL,
+    option_id UUID REFERENCES restoreiq.restoration_options(option_id) ON DELETE SET NULL,
+    crew_id UUID REFERENCES restoreiq.crews(crew_id) ON DELETE SET NULL,
     crew_name VARCHAR(128),
     recommendation_rank INTEGER NOT NULL,
     assignment_type VARCHAR(64),
@@ -318,17 +326,17 @@ CREATE TABLE IF NOT EXISTS crew_recommendations (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON TABLE crew_recommendations IS 'Generated crew assignment recommendations (advisory only)';
+COMMENT ON TABLE restoreiq.crew_recommendations IS 'Generated crew assignment recommendations (advisory only)';
 
 -- -----------------------------------------------------------------------------
 -- 12. OPERATOR_FEEDBACK TABLE
 -- Operator feedback on recommendations
 -- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS operator_feedback (
+CREATE TABLE IF NOT EXISTS restoreiq.operator_feedback (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id VARCHAR(64) NOT NULL,
-    run_id UUID REFERENCES recommendation_runs(run_id) ON DELETE SET NULL,
-    outage_id UUID REFERENCES outages(outage_id) ON DELETE SET NULL,
+    run_id UUID REFERENCES restoreiq.recommendation_runs(run_id) ON DELETE SET NULL,
+    outage_id UUID REFERENCES restoreiq.outages(outage_id) ON DELETE SET NULL,
     feedback_type VARCHAR(64) NOT NULL,
     target_type VARCHAR(64),
     target_id UUID,
@@ -341,16 +349,16 @@ CREATE TABLE IF NOT EXISTS operator_feedback (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON TABLE operator_feedback IS 'Operator feedback on AI recommendations for continuous improvement';
+COMMENT ON TABLE restoreiq.operator_feedback IS 'Operator feedback on AI recommendations for continuous improvement';
 
 -- -----------------------------------------------------------------------------
 -- 13. OUTAGE_REPLAYS TABLE
 -- After-action replay and report generation
 -- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS outage_replays (
+CREATE TABLE IF NOT EXISTS restoreiq.outage_replays (
     replay_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id VARCHAR(64) NOT NULL,
-    outage_id UUID NOT NULL REFERENCES outages(outage_id) ON DELETE CASCADE,
+    outage_id UUID NOT NULL REFERENCES restoreiq.outages(outage_id) ON DELETE CASCADE,
     generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     generated_by VARCHAR(128),
     replay_type VARCHAR(64) DEFAULT 'after_action',
@@ -368,8 +376,8 @@ CREATE TABLE IF NOT EXISTS outage_replays (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON TABLE outage_replays IS 'After-action replay summaries with report blob references';
-COMMENT ON COLUMN outage_replays.summary IS 'JSONB containing milestones, metrics, narrative, top recommendations, evidence counts';
-COMMENT ON COLUMN outage_replays.report_blob_ref IS 'JSONB with S3 signed URLs for PDF/DOCX exports';
+COMMENT ON TABLE restoreiq.outage_replays IS 'After-action replay summaries with report blob references';
+COMMENT ON COLUMN restoreiq.outage_replays.summary IS 'JSONB containing milestones, metrics, narrative, top recommendations, evidence counts';
+COMMENT ON COLUMN restoreiq.outage_replays.report_blob_ref IS 'JSONB with S3 signed URLs for PDF/DOCX exports';
 
 COMMIT;

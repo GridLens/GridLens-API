@@ -1,18 +1,28 @@
 -- =============================================================================
 -- GridLens RestoreIQ Schema Verification Queries
--- Description: SQL smoke queries to validate tables and indexes exist
+-- Description: SQL smoke queries to validate tables and indexes exist in restoreiq schema
 -- Run these queries after applying migrations to verify schema is correct
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
--- 1. VERIFY ALL TABLES EXIST
+-- 1. VERIFY SCHEMA EXISTS
+-- -----------------------------------------------------------------------------
+SELECT 
+    'SCHEMA CHECK' as check_type,
+    schema_name,
+    CASE WHEN schema_name IS NOT NULL THEN 'EXISTS' ELSE 'MISSING' END as status
+FROM information_schema.schemata 
+WHERE schema_name = 'restoreiq';
+
+-- -----------------------------------------------------------------------------
+-- 2. VERIFY ALL TABLES EXIST IN restoreiq SCHEMA
 -- -----------------------------------------------------------------------------
 SELECT 
     'TABLE CHECK' as check_type,
     table_name,
     CASE WHEN table_name IS NOT NULL THEN 'EXISTS' ELSE 'MISSING' END as status
 FROM information_schema.tables 
-WHERE table_schema = 'public' 
+WHERE table_schema = 'restoreiq' 
 AND table_name IN (
     'events',
     'outages',
@@ -31,7 +41,7 @@ AND table_name IN (
 ORDER BY table_name;
 
 -- -----------------------------------------------------------------------------
--- 2. VERIFY CRITICAL INDEXES EXIST (Charter Required)
+-- 3. VERIFY CRITICAL INDEXES EXIST (Charter Required)
 -- -----------------------------------------------------------------------------
 SELECT 
     'INDEX CHECK' as check_type,
@@ -39,7 +49,7 @@ SELECT
     tablename,
     'EXISTS' as status
 FROM pg_indexes 
-WHERE schemaname = 'public'
+WHERE schemaname = 'restoreiq'
 AND indexname IN (
     'idx_events_tenant_canon_occurred',
     'idx_events_tenant_prov_outage',
@@ -50,14 +60,14 @@ AND indexname IN (
 ORDER BY tablename, indexname;
 
 -- -----------------------------------------------------------------------------
--- 3. VERIFY TABLE COUNTS (should be 13 RestoreIQ tables)
+-- 4. VERIFY TABLE COUNTS (should be 13 RestoreIQ tables)
 -- -----------------------------------------------------------------------------
 SELECT 
     'TABLE COUNT' as check_type,
     COUNT(*) as restoreiq_table_count,
     CASE WHEN COUNT(*) >= 13 THEN 'PASS' ELSE 'FAIL - Expected 13' END as status
 FROM information_schema.tables 
-WHERE table_schema = 'public' 
+WHERE table_schema = 'restoreiq' 
 AND table_name IN (
     'events', 'outages', 'outage_impacts', 'recommendation_runs',
     'provisional_outages', 'fault_zones', 'fault_zone_rankings',
@@ -66,18 +76,18 @@ AND table_name IN (
 );
 
 -- -----------------------------------------------------------------------------
--- 4. VERIFY INDEX COUNT (should have 30+ indexes)
+-- 5. VERIFY INDEX COUNT (should have 30+ indexes in restoreiq schema)
 -- -----------------------------------------------------------------------------
 SELECT 
     'INDEX COUNT' as check_type,
     COUNT(*) as restoreiq_index_count,
     CASE WHEN COUNT(*) >= 30 THEN 'PASS' ELSE 'CHECK - May have fewer indexes' END as status
 FROM pg_indexes 
-WHERE schemaname = 'public'
+WHERE schemaname = 'restoreiq'
 AND indexname LIKE 'idx_%';
 
 -- -----------------------------------------------------------------------------
--- 5. VERIFY FOREIGN KEY CONSTRAINTS
+-- 6. VERIFY FOREIGN KEY CONSTRAINTS IN restoreiq SCHEMA
 -- -----------------------------------------------------------------------------
 SELECT 
     'FK CHECK' as check_type,
@@ -88,8 +98,9 @@ SELECT
 FROM information_schema.table_constraints tc
 JOIN information_schema.constraint_column_usage ccu 
     ON tc.constraint_name = ccu.constraint_name
+    AND tc.constraint_schema = ccu.constraint_schema
 WHERE tc.constraint_type = 'FOREIGN KEY'
-AND tc.table_schema = 'public'
+AND tc.table_schema = 'restoreiq'
 AND tc.table_name IN (
     'outage_impacts', 'recommendation_runs', 'provisional_outages',
     'fault_zone_rankings', 'restoration_options', 'crew_skills',
@@ -98,7 +109,7 @@ AND tc.table_name IN (
 ORDER BY tc.table_name;
 
 -- -----------------------------------------------------------------------------
--- 6. VERIFY CRITICAL COLUMNS EXIST
+-- 7. VERIFY CRITICAL COLUMNS EXIST IN restoreiq SCHEMA
 -- -----------------------------------------------------------------------------
 SELECT 
     'COLUMN CHECK' as check_type,
@@ -107,7 +118,7 @@ SELECT
     data_type,
     'EXISTS' as status
 FROM information_schema.columns
-WHERE table_schema = 'public'
+WHERE table_schema = 'restoreiq'
 AND (
     (table_name = 'events' AND column_name IN ('canon_outage_id', 'prov_outage_id', 'tenant_id'))
     OR (table_name = 'outage_replays' AND column_name IN ('summary', 'report_blob_ref', 'outage_id'))
@@ -117,7 +128,7 @@ AND (
 ORDER BY table_name, column_name;
 
 -- -----------------------------------------------------------------------------
--- 7. VERIFY JSONB COLUMNS FOR RETOOL COMPATIBILITY
+-- 8. VERIFY JSONB COLUMNS FOR RETOOL COMPATIBILITY
 -- -----------------------------------------------------------------------------
 SELECT 
     'JSONB CHECK' as check_type,
@@ -126,7 +137,7 @@ SELECT
     data_type,
     CASE WHEN data_type = 'jsonb' THEN 'PASS' ELSE 'FAIL' END as status
 FROM information_schema.columns
-WHERE table_schema = 'public'
+WHERE table_schema = 'restoreiq'
 AND data_type = 'jsonb'
 AND table_name IN (
     'events', 'outages', 'recommendation_runs', 'provisional_outages',
@@ -136,15 +147,22 @@ AND table_name IN (
 ORDER BY table_name, column_name;
 
 -- -----------------------------------------------------------------------------
--- 8. COMPREHENSIVE PASS/FAIL SUMMARY
+-- 9. COMPREHENSIVE PASS/FAIL SUMMARY
 -- -----------------------------------------------------------------------------
 WITH checks AS (
+    SELECT 
+        'schema' as category,
+        COUNT(*) as found,
+        1 as expected
+    FROM information_schema.schemata 
+    WHERE schema_name = 'restoreiq'
+    UNION ALL
     SELECT 
         'tables' as category,
         COUNT(*) as found,
         13 as expected
     FROM information_schema.tables 
-    WHERE table_schema = 'public' 
+    WHERE table_schema = 'restoreiq' 
     AND table_name IN (
         'events', 'outages', 'outage_impacts', 'recommendation_runs',
         'provisional_outages', 'fault_zones', 'fault_zone_rankings',
@@ -157,7 +175,7 @@ WITH checks AS (
         COUNT(*) as found,
         5 as expected
     FROM pg_indexes 
-    WHERE schemaname = 'public'
+    WHERE schemaname = 'restoreiq'
     AND indexname IN (
         'idx_events_tenant_canon_occurred',
         'idx_events_tenant_prov_outage',
