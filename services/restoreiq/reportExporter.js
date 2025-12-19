@@ -291,3 +291,19 @@ export async function getReportBlobRef(tenantId, replayId) {
   
   return result.rows[0]?.report_blob_ref || null;
 }
+
+export async function getReportFilePath(tenantId, replayId) {
+  const blobRef = await getReportBlobRef(tenantId, replayId);
+  
+  if (!blobRef || !blobRef.pdf_path) {
+    return null;
+  }
+  
+  const relativePath = blobRef.pdf_path.startsWith('/') 
+    ? blobRef.pdf_path.slice(1) 
+    : blobRef.pdf_path;
+  
+  const fullPath = path.join(__dirname, '../../', relativePath);
+  
+  return fullPath;
+}

@@ -1,22 +1,34 @@
 /**
  * GridLens RestoreIQ - API Router
  * 
+ * Mount point: /api/v1
+ * 
  * Exposes endpoints for:
- * - Step 17: POST /v1/fault-zones/rank
- * - Step 20: POST /v1/replays/after-action/generate
- * - Step 21: POST /v1/reports/after-action/export
+ * - Step 17: POST /api/v1/fault-zones/rank
+ * - Step 20: POST /api/v1/replays/after-action/generate
+ * - Step 21: POST /api/v1/reports/after-action/export
  * 
  * All endpoints are ADVISORY ONLY - no operational commands.
  */
 
 import express from "express";
+import fs from "fs";
+import path from "path";
+import crypto from "crypto";
+import { fileURLToPath } from "url";
 import { rankFaultZones, getRankingByRunId } from "../../services/restoreiq/faultZoneRanking.js";
 import { generateAfterActionReplay, getReplayById, getReplaysByOutage } from "../../services/restoreiq/outageReplayGenerator.js";
-import { exportAfterActionReport, getReportBlobRef } from "../../services/restoreiq/reportExporter.js";
+import { exportAfterActionReport, getReportBlobRef, getReportFilePath } from "../../services/restoreiq/reportExporter.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 
 const ADVISORY_DISCLAIMER = "Advisory-only recommendations. Operator validation required.";
+
+const downloadTokens = new Map();
+const TOKEN_EXPIRY_MS = 15 * 60 * 1000;
 
 function validateUUID(value, fieldName) {
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -30,8 +42,21 @@ function resolveTenantId(req) {
   return req.body?.tenantId || req.query?.tenantId || 'DEMO_TENANT';
 }
 
+function generateDownloadToken(replayId, tenantId) {
+  const token = crypto.randomBytes(32).toString('hex');
+  downloadTokens.set(token, {
+    replayId,
+    tenantId,
+    createdAt: Date.now()
+  });
+  
+  setTimeout(() => downloadTokens.delete(token), TOKEN_EXPIRY_MS);
+  
+  return token;
+}
+
 /**
- * Step 17: POST /v1/fault-zones/rank
+ * Step 17: POST /api/v1/fault-zones/rank
  * Rank fault zones for a given outage
  */
 router.post('/fault-zones/rank', async (req, res) => {
@@ -76,7 +101,7 @@ router.post('/fault-zones/rank', async (req, res) => {
 });
 
 /**
- * GET /v1/fault-zones/rankings/:runId
+ * GET /api/v1/fault-zones/rankings/:runId
  * Get ranking results by run ID
  */
 router.get('/fault-zones/rankings/:runId', async (req, res) => {
@@ -113,7 +138,7 @@ router.get('/fault-zones/rankings/:runId', async (req, res) => {
 });
 
 /**
- * Step 20: POST /v1/replays/after-action/generate
+ * Step 20: POST /api/v1/replays/after-action/generate
  * Generate an after-action replay for an outage
  */
 router.post('/replays/after-action/generate', async (req, res) => {
@@ -158,7 +183,7 @@ router.post('/replays/after-action/generate', async (req, res) => {
 });
 
 /**
- * GET /v1/replays/:replayId
+ * GET /api/v1/replays/:replayId
  * Get a replay by ID
  */
 router.get('/replays/:replayId', async (req, res) => {
@@ -200,7 +225,7 @@ router.get('/replays/:replayId', async (req, res) => {
 });
 
 /**
- * GET /v1/replays/outage/:outageId
+ * GET /api/v1/replays/outage/:outageId
  * Get all replays for an outage
  */
 router.get('/replays/outage/:outageId', async (req, res) => {
@@ -237,7 +262,7 @@ router.get('/replays/outage/:outageId', async (req, res) => {
 });
 
 /**
- * Step 21: POST /v1/reports/after-action/export
+ * Step 21: POST /api/v1/reports/after-action/export
  * Export an after-action report to PDF
  */
 router.post('/reports/after-action/export', async (req, res) => {
@@ -269,7 +294,13 @@ router.post('/reports/after-action/export', async (req, res) => {
       outageId
     });
     
-    res.json(result);
+    const downloadToken = generateDownloadToken(replayId, tenantId);
+    
+    res.json({
+      ...result,
+      download_url: `/api/v1/reports/download?token=${downloadToken}`,
+      token_expires_in_seconds: TOKEN_EXPIRY_MS / 1000
+    });
     
   } catch (err) {
     console.error('[RestoreIQ] Report export error:', err.message);
@@ -282,10 +313,76 @@ router.post('/reports/after-action/export', async (req, res) => {
 });
 
 /**
- * GET /v1/reports/:replayId/download
- * Get report blob reference for download
+ * GET /api/v1/reports/download?token=xxx
+ * Download PDF using secure tokenized link (streams PDF)
  */
-router.get('/reports/:replayId/download', async (req, res) => {
+router.get('/reports/download', async (req, res) => {
+  try {
+    const { token } = req.query;
+    
+    if (!token) {
+      return res.status(400).json({
+        status: 'error',
+        error: 'Download token is required'
+      });
+    }
+    
+    const tokenData = downloadTokens.get(token);
+    
+    if (!tokenData) {
+      return res.status(401).json({
+        status: 'error',
+        error: 'Invalid or expired download token. Request a new export.'
+      });
+    }
+    
+    if (Date.now() - tokenData.createdAt > TOKEN_EXPIRY_MS) {
+      downloadTokens.delete(token);
+      return res.status(401).json({
+        status: 'error',
+        error: 'Download token has expired. Request a new export.'
+      });
+    }
+    
+    const filePath = await getReportFilePath(tokenData.tenantId, tokenData.replayId);
+    
+    if (!filePath || !fs.existsSync(filePath)) {
+      return res.status(404).json({
+        status: 'error',
+        error: 'Report file not found. Generate a new export.'
+      });
+    }
+    
+    const filename = path.basename(filePath);
+    
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    
+    const fileStream = fs.createReadStream(filePath);
+    fileStream.pipe(res);
+    
+    fileStream.on('error', (err) => {
+      console.error('[RestoreIQ] File stream error:', err.message);
+      if (!res.headersSent) {
+        res.status(500).json({ status: 'error', error: 'Failed to stream file' });
+      }
+    });
+    
+  } catch (err) {
+    console.error('[RestoreIQ] Download error:', err.message);
+    res.status(500).json({
+      status: 'error',
+      error: err.message
+    });
+  }
+});
+
+/**
+ * GET /api/v1/reports/:replayId/info
+ * Get report metadata (no raw paths exposed)
+ */
+router.get('/reports/:replayId/info', async (req, res) => {
   try {
     const tenantId = resolveTenantId(req);
     const { replayId } = req.params;
@@ -304,19 +401,24 @@ router.get('/reports/:replayId/download', async (req, res) => {
     if (!blobRef) {
       return res.status(404).json({
         status: 'error',
-        error: 'Report not found. Generate report first using POST /v1/reports/after-action/export'
+        error: 'Report not found. Generate report first using POST /api/v1/reports/after-action/export'
       });
     }
+    
+    const downloadToken = generateDownloadToken(replayId, tenantId);
     
     res.json({
       status: 'ok',
       replay_id: replayId,
-      report: blobRef,
+      format: blobRef.format || 'pdf',
+      generated_at: blobRef.pdf_generated_at,
+      download_url: `/api/v1/reports/download?token=${downloadToken}`,
+      token_expires_in_seconds: TOKEN_EXPIRY_MS / 1000,
       advisory: ADVISORY_DISCLAIMER
     });
     
   } catch (err) {
-    console.error('[RestoreIQ] Get report error:', err.message);
+    console.error('[RestoreIQ] Get report info error:', err.message);
     res.status(500).json({
       status: 'error',
       error: err.message
@@ -325,21 +427,23 @@ router.get('/reports/:replayId/download', async (req, res) => {
 });
 
 /**
- * Health check endpoint
+ * RestoreIQ Health check endpoint (namespaced to avoid collision)
  */
-router.get('/health', (req, res) => {
+router.get('/restoreiq/health', (req, res) => {
   res.json({
     status: 'ok',
     service: 'RestoreIQ',
     version: '1.0.0',
     endpoints: [
-      'POST /v1/fault-zones/rank',
-      'GET /v1/fault-zones/rankings/:runId',
-      'POST /v1/replays/after-action/generate',
-      'GET /v1/replays/:replayId',
-      'GET /v1/replays/outage/:outageId',
-      'POST /v1/reports/after-action/export',
-      'GET /v1/reports/:replayId/download'
+      'POST /api/v1/fault-zones/rank',
+      'GET  /api/v1/fault-zones/rankings/:runId',
+      'POST /api/v1/replays/after-action/generate',
+      'GET  /api/v1/replays/:replayId',
+      'GET  /api/v1/replays/outage/:outageId',
+      'POST /api/v1/reports/after-action/export',
+      'GET  /api/v1/reports/download?token=xxx',
+      'GET  /api/v1/reports/:replayId/info',
+      'GET  /api/v1/restoreiq/health'
     ],
     advisory: ADVISORY_DISCLAIMER
   });

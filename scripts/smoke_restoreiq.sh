@@ -57,12 +57,17 @@ check_response() {
 }
 
 # -----------------------------------------------------------------------------
-# Test 0: Health Check
+# Test 0: Health Check (namespaced endpoint)
 # -----------------------------------------------------------------------------
 echo "--- Test 0: Health Check ---"
+echo "Endpoint: GET $BASE_URL/api/v1/restoreiq/health"
+echo ""
 
-HEALTH=$(curl -s "$BASE_URL/api/v1/health")
+HEALTH=$(curl -s "$BASE_URL/api/v1/restoreiq/health")
 check_response "$HEALTH" "RestoreIQ" "Health check"
+echo "Response:"
+echo "$HEALTH" | head -c 300
+echo ""
 echo ""
 
 # -----------------------------------------------------------------------------
@@ -174,10 +179,10 @@ if [ -n "$REPLAY_ID" ]; then
     echo "$EXPORT_RESPONSE"
     echo ""
 
-    if echo "$EXPORT_RESPONSE" | grep -q '"pdf_path"'; then
+    if echo "$EXPORT_RESPONSE" | grep -q '"download_url"'; then
         echo -e "${GREEN}✓ Report export endpoint responded${NC}"
-        PDF_PATH=$(echo "$EXPORT_RESPONSE" | grep -o '"pdf_path":"[^"]*"' | head -1 | cut -d'"' -f4)
-        echo "  PDF path: $PDF_PATH"
+        DOWNLOAD_URL=$(echo "$EXPORT_RESPONSE" | grep -o '"download_url":"[^"]*"' | head -1 | cut -d'"' -f4)
+        echo "  Download URL: $DOWNLOAD_URL"
     else
         echo -e "${YELLOW}⚠ Report export may have failed${NC}"
     fi
@@ -187,28 +192,55 @@ fi
 echo ""
 
 # -----------------------------------------------------------------------------
-# Test 5: Get Report Download Info
+# Test 5: Get Report Info (metadata endpoint)
 # -----------------------------------------------------------------------------
-echo "--- Test 5: GET /api/v1/reports/:replayId/download ---"
+echo "--- Test 5: GET /api/v1/reports/:replayId/info ---"
 
 if [ -n "$REPLAY_ID" ]; then
     echo "Request:"
-    echo "  curl -s $BASE_URL/api/v1/reports/$REPLAY_ID/download?tenantId=$TENANT_ID"
+    echo "  curl -s $BASE_URL/api/v1/reports/$REPLAY_ID/info?tenantId=$TENANT_ID"
     echo ""
 
-    DOWNLOAD_RESPONSE=$(curl -s "$BASE_URL/api/v1/reports/$REPLAY_ID/download?tenantId=$TENANT_ID" 2>/dev/null || echo '{"status":"error"}')
+    INFO_RESPONSE=$(curl -s "$BASE_URL/api/v1/reports/$REPLAY_ID/info?tenantId=$TENANT_ID" 2>/dev/null || echo '{"status":"error"}')
 
     echo "Response:"
-    echo "$DOWNLOAD_RESPONSE"
+    echo "$INFO_RESPONSE"
     echo ""
 
-    if echo "$DOWNLOAD_RESPONSE" | grep -q '"report"'; then
-        echo -e "${GREEN}✓ Report download info retrieved${NC}"
+    if echo "$INFO_RESPONSE" | grep -q '"download_url"'; then
+        echo -e "${GREEN}✓ Report info retrieved with tokenized download link${NC}"
     else
-        echo -e "${YELLOW}⚠ Report download info not available${NC}"
+        echo -e "${YELLOW}⚠ Report info not available${NC}"
     fi
 else
-    echo -e "${YELLOW}⚠ Skipping download test (no replay_id available)${NC}"
+    echo -e "${YELLOW}⚠ Skipping info test (no replay_id available)${NC}"
+fi
+echo ""
+
+# -----------------------------------------------------------------------------
+# Test 6: Download PDF (using token from export)
+# -----------------------------------------------------------------------------
+echo "--- Test 6: GET /api/v1/reports/download?token=xxx ---"
+
+if [ -n "$DOWNLOAD_URL" ]; then
+    echo "Request:"
+    echo "  curl -s $BASE_URL$DOWNLOAD_URL -o test_report.pdf"
+    echo ""
+
+    DOWNLOAD_RESULT=$(curl -s -w "%{http_code}" "$BASE_URL$DOWNLOAD_URL" -o /tmp/test_report.pdf 2>/dev/null || echo "000")
+
+    if [ "$DOWNLOAD_RESULT" = "200" ]; then
+        echo -e "${GREEN}✓ PDF downloaded successfully${NC}"
+        if [ -f /tmp/test_report.pdf ]; then
+            FILE_SIZE=$(wc -c < /tmp/test_report.pdf)
+            echo "  File size: $FILE_SIZE bytes"
+            rm -f /tmp/test_report.pdf
+        fi
+    else
+        echo -e "${YELLOW}⚠ Download returned HTTP $DOWNLOAD_RESULT${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚠ Skipping download test (no download_url available)${NC}"
 fi
 echo ""
 
@@ -221,18 +253,24 @@ echo "=============================================="
 echo ""
 echo "Manual curl examples for testing:"
 echo ""
-echo "1. Rank Fault Zones:"
+echo "1. Health Check:"
+echo "   curl $BASE_URL/api/v1/restoreiq/health"
+echo ""
+echo "2. Rank Fault Zones:"
 echo "   curl -X POST $BASE_URL/api/v1/fault-zones/rank \\"
 echo "     -H 'Content-Type: application/json' \\"
 echo "     -d '{\"tenantId\": \"DEMO_TENANT\", \"outageId\": \"YOUR_OUTAGE_UUID\"}'"
 echo ""
-echo "2. Generate Replay:"
+echo "3. Generate Replay:"
 echo "   curl -X POST $BASE_URL/api/v1/replays/after-action/generate \\"
 echo "     -H 'Content-Type: application/json' \\"
 echo "     -d '{\"tenantId\": \"DEMO_TENANT\", \"outageId\": \"YOUR_OUTAGE_UUID\"}'"
 echo ""
-echo "3. Export PDF Report:"
+echo "4. Export PDF Report (returns tokenized download_url):"
 echo "   curl -X POST $BASE_URL/api/v1/reports/after-action/export \\"
 echo "     -H 'Content-Type: application/json' \\"
 echo "     -d '{\"tenantId\": \"DEMO_TENANT\", \"replayId\": \"YOUR_REPLAY_UUID\"}'"
+echo ""
+echo "5. Download PDF (use token from step 4):"
+echo "   curl \$BASE_URL/api/v1/reports/download?token=YOUR_TOKEN -o report.pdf"
 echo ""
