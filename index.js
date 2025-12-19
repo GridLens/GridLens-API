@@ -17,6 +17,7 @@ import kpiEnergyLoss from "./routes/kpiEnergyLoss.js";
 import outagesRouter from "./routes/outagesRouter.js";
 import fieldOpsRouter from "./routes/fieldOpsRouter.js";
 import derivedMetricsRouter from "./routes/derivedMetricsRouter.js";
+import restoreiqRouter from "./routes/restoreiq/restoreiqRouter.js";
 import { 
   buildAndEnqueueReadBatches, 
   createEvent, 
@@ -173,6 +174,14 @@ app.use('/api/kpi/energy-loss', kpiEnergyLoss);
 app.use('/api/kpi/outages', outagesRouter);
 app.use('/api/fieldops', fieldOpsRouter);
 app.use('/api/kpi/derived', derivedMetricsRouter);
+
+// -----------------------------
+// RestoreIQ Outage Intelligence Module (v1 API)
+// -----------------------------
+app.use('/api/v1', restoreiqRouter);
+
+// Serve generated reports
+app.use('/reports', express.static(path.join(__dirname, 'reports')));
 
 // -----------------------------
 // AMI Emulator Endpoints
