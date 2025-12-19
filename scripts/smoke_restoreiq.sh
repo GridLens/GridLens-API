@@ -12,8 +12,10 @@
 #   - RestoreIQ schema applied to database
 #   - At least one outage record in restoreiq.outages
 #   - Server running on localhost:5000
+#   - RESTOREIQ_API_KEY environment variable set
 #
 # Usage:
+#   export RESTOREIQ_API_KEY="your-api-key"
 #   chmod +x scripts/smoke_restoreiq.sh
 #   ./scripts/smoke_restoreiq.sh
 #
@@ -24,18 +26,33 @@ set -e
 BASE_URL="${API_BASE_URL:-http://localhost:5000}"
 TENANT_ID="${TENANT_ID:-DEMO_TENANT}"
 
-echo "=============================================="
-echo "GridLens RestoreIQ Smoke Test"
-echo "=============================================="
-echo "Base URL: $BASE_URL"
-echo "Tenant ID: $TENANT_ID"
-echo ""
-
 # Color codes
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
+
+# -----------------------------------------------------------------------------
+# Check Required Environment Variables
+# -----------------------------------------------------------------------------
+if [ -z "$RESTOREIQ_API_KEY" ]; then
+    echo -e "${RED}ERROR: RESTOREIQ_API_KEY environment variable is not set.${NC}"
+    echo ""
+    echo "Please set the API key before running this script:"
+    echo "  export RESTOREIQ_API_KEY=\"your-api-key\""
+    echo ""
+    echo "Then run the script again:"
+    echo "  ./scripts/smoke_restoreiq.sh"
+    exit 1
+fi
+
+echo "=============================================="
+echo "GridLens RestoreIQ Smoke Test"
+echo "=============================================="
+echo "Base URL: $BASE_URL"
+echo "Tenant ID: $TENANT_ID"
+echo "API Key: ${RESTOREIQ_API_KEY:0:8}..."
+echo ""
 
 # -----------------------------------------------------------------------------
 # Helper Functions
@@ -100,11 +117,13 @@ echo "--- Test 2: POST /api/v1/fault-zones/rank (Step 17) ---"
 echo "Request:"
 echo "  curl -X POST $BASE_URL/api/v1/fault-zones/rank \\"
 echo "    -H 'Content-Type: application/json' \\"
+echo "    -H 'Authorization: Bearer \$RESTOREIQ_API_KEY' \\"
 echo "    -d '{\"tenantId\": \"$TENANT_ID\", \"outageId\": \"$OUTAGE_ID\"}'"
 echo ""
 
 RANK_RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/fault-zones/rank" \
     -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $RESTOREIQ_API_KEY" \
     -d "{\"tenantId\": \"$TENANT_ID\", \"outageId\": \"$OUTAGE_ID\"}" 2>/dev/null || echo '{"status":"error"}')
 
 echo "Response (truncated):"
@@ -133,11 +152,13 @@ echo "--- Test 3: POST /api/v1/replays/after-action/generate (Step 20) ---"
 echo "Request:"
 echo "  curl -X POST $BASE_URL/api/v1/replays/after-action/generate \\"
 echo "    -H 'Content-Type: application/json' \\"
+echo "    -H 'Authorization: Bearer \$RESTOREIQ_API_KEY' \\"
 echo "    -d '{\"tenantId\": \"$TENANT_ID\", \"outageId\": \"$OUTAGE_ID\"}'"
 echo ""
 
 REPLAY_RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/replays/after-action/generate" \
     -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $RESTOREIQ_API_KEY" \
     -d "{\"tenantId\": \"$TENANT_ID\", \"outageId\": \"$OUTAGE_ID\"}" 2>/dev/null || echo '{"status":"error"}')
 
 echo "Response (truncated):"
@@ -168,11 +189,13 @@ if [ -n "$REPLAY_ID" ]; then
     echo "Request:"
     echo "  curl -X POST $BASE_URL/api/v1/reports/after-action/export \\"
     echo "    -H 'Content-Type: application/json' \\"
+    echo "    -H 'Authorization: Bearer \$RESTOREIQ_API_KEY' \\"
     echo "    -d '{\"tenantId\": \"$TENANT_ID\", \"replayId\": \"$REPLAY_ID\"}'"
     echo ""
 
     EXPORT_RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/reports/after-action/export" \
         -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $RESTOREIQ_API_KEY" \
         -d "{\"tenantId\": \"$TENANT_ID\", \"replayId\": \"$REPLAY_ID\"}" 2>/dev/null || echo '{"status":"error"}')
 
     echo "Response:"
@@ -259,16 +282,19 @@ echo ""
 echo "2. Rank Fault Zones:"
 echo "   curl -X POST $BASE_URL/api/v1/fault-zones/rank \\"
 echo "     -H 'Content-Type: application/json' \\"
+echo "     -H 'Authorization: Bearer \$RESTOREIQ_API_KEY' \\"
 echo "     -d '{\"tenantId\": \"DEMO_TENANT\", \"outageId\": \"YOUR_OUTAGE_UUID\"}'"
 echo ""
 echo "3. Generate Replay:"
 echo "   curl -X POST $BASE_URL/api/v1/replays/after-action/generate \\"
 echo "     -H 'Content-Type: application/json' \\"
+echo "     -H 'Authorization: Bearer \$RESTOREIQ_API_KEY' \\"
 echo "     -d '{\"tenantId\": \"DEMO_TENANT\", \"outageId\": \"YOUR_OUTAGE_UUID\"}'"
 echo ""
 echo "4. Export PDF Report (returns tokenized download_url):"
 echo "   curl -X POST $BASE_URL/api/v1/reports/after-action/export \\"
 echo "     -H 'Content-Type: application/json' \\"
+echo "     -H 'Authorization: Bearer \$RESTOREIQ_API_KEY' \\"
 echo "     -d '{\"tenantId\": \"DEMO_TENANT\", \"replayId\": \"YOUR_REPLAY_UUID\"}'"
 echo ""
 echo "5. Download PDF (use token from step 4):"
