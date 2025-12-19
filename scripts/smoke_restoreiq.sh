@@ -46,12 +46,16 @@ if [ -z "$RESTOREIQ_API_KEY" ]; then
     exit 1
 fi
 
+AUTH_HEADER="Authorization: Bearer $RESTOREIQ_API_KEY"
+AUTH_HEADER_DISPLAY="Authorization: Bearer ${RESTOREIQ_API_KEY:0:6}..."
+
 echo "=============================================="
 echo "GridLens RestoreIQ Smoke Test"
 echo "=============================================="
 echo "Base URL: $BASE_URL"
 echo "Tenant ID: $TENANT_ID"
-echo "API Key: ${RESTOREIQ_API_KEY:0:8}..."
+echo "API Key: ${RESTOREIQ_API_KEY:0:6}..."
+echo "Auth Header: $AUTH_HEADER_DISPLAY"
 echo ""
 
 # -----------------------------------------------------------------------------
@@ -74,9 +78,9 @@ check_response() {
 }
 
 # -----------------------------------------------------------------------------
-# Test 0: Health Check (namespaced endpoint)
+# Test 0: Health Check (namespaced endpoint, unauthenticated)
 # -----------------------------------------------------------------------------
-echo "--- Test 0: Health Check ---"
+echo "--- Test 0: Health Check (unauthenticated) ---"
 echo "Endpoint: GET $BASE_URL/api/v1/restoreiq/health"
 echo ""
 
@@ -113,17 +117,19 @@ echo ""
 # Test 2: Step 17 - Rank Fault Zones
 # -----------------------------------------------------------------------------
 echo "--- Test 2: POST /api/v1/fault-zones/rank (Step 17) ---"
+echo "Using header: $AUTH_HEADER_DISPLAY"
+echo ""
 
 echo "Request:"
 echo "  curl -X POST $BASE_URL/api/v1/fault-zones/rank \\"
 echo "    -H 'Content-Type: application/json' \\"
-echo "    -H 'Authorization: Bearer \$RESTOREIQ_API_KEY' \\"
+echo "    -H '$AUTH_HEADER_DISPLAY' \\"
 echo "    -d '{\"tenantId\": \"$TENANT_ID\", \"outageId\": \"$OUTAGE_ID\"}'"
 echo ""
 
 RANK_RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/fault-zones/rank" \
     -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $RESTOREIQ_API_KEY" \
+    -H "$AUTH_HEADER" \
     -d "{\"tenantId\": \"$TENANT_ID\", \"outageId\": \"$OUTAGE_ID\"}" 2>/dev/null || echo '{"status":"error"}')
 
 echo "Response (truncated):"
@@ -148,17 +154,19 @@ echo ""
 # Test 3: Step 20 - Generate After-Action Replay
 # -----------------------------------------------------------------------------
 echo "--- Test 3: POST /api/v1/replays/after-action/generate (Step 20) ---"
+echo "Using header: $AUTH_HEADER_DISPLAY"
+echo ""
 
 echo "Request:"
 echo "  curl -X POST $BASE_URL/api/v1/replays/after-action/generate \\"
 echo "    -H 'Content-Type: application/json' \\"
-echo "    -H 'Authorization: Bearer \$RESTOREIQ_API_KEY' \\"
+echo "    -H '$AUTH_HEADER_DISPLAY' \\"
 echo "    -d '{\"tenantId\": \"$TENANT_ID\", \"outageId\": \"$OUTAGE_ID\"}'"
 echo ""
 
 REPLAY_RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/replays/after-action/generate" \
     -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $RESTOREIQ_API_KEY" \
+    -H "$AUTH_HEADER" \
     -d "{\"tenantId\": \"$TENANT_ID\", \"outageId\": \"$OUTAGE_ID\"}" 2>/dev/null || echo '{"status":"error"}')
 
 echo "Response (truncated):"
@@ -184,18 +192,20 @@ echo ""
 # Test 4: Step 21 - Export After-Action Report (PDF)
 # -----------------------------------------------------------------------------
 echo "--- Test 4: POST /api/v1/reports/after-action/export (Step 21) ---"
+echo "Using header: $AUTH_HEADER_DISPLAY"
+echo ""
 
 if [ -n "$REPLAY_ID" ]; then
     echo "Request:"
     echo "  curl -X POST $BASE_URL/api/v1/reports/after-action/export \\"
     echo "    -H 'Content-Type: application/json' \\"
-    echo "    -H 'Authorization: Bearer \$RESTOREIQ_API_KEY' \\"
+    echo "    -H '$AUTH_HEADER_DISPLAY' \\"
     echo "    -d '{\"tenantId\": \"$TENANT_ID\", \"replayId\": \"$REPLAY_ID\"}'"
     echo ""
 
     EXPORT_RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/reports/after-action/export" \
         -H "Content-Type: application/json" \
-        -H "Authorization: Bearer $RESTOREIQ_API_KEY" \
+        -H "$AUTH_HEADER" \
         -d "{\"tenantId\": \"$TENANT_ID\", \"replayId\": \"$REPLAY_ID\"}" 2>/dev/null || echo '{"status":"error"}')
 
     echo "Response:"
@@ -276,22 +286,22 @@ echo "=============================================="
 echo ""
 echo "Manual curl examples for testing:"
 echo ""
-echo "1. Health Check:"
+echo "1. Health Check (unauthenticated):"
 echo "   curl $BASE_URL/api/v1/restoreiq/health"
 echo ""
-echo "2. Rank Fault Zones:"
+echo "2. Rank Fault Zones (requires auth):"
 echo "   curl -X POST $BASE_URL/api/v1/fault-zones/rank \\"
 echo "     -H 'Content-Type: application/json' \\"
 echo "     -H 'Authorization: Bearer \$RESTOREIQ_API_KEY' \\"
 echo "     -d '{\"tenantId\": \"DEMO_TENANT\", \"outageId\": \"YOUR_OUTAGE_UUID\"}'"
 echo ""
-echo "3. Generate Replay:"
+echo "3. Generate Replay (requires auth):"
 echo "   curl -X POST $BASE_URL/api/v1/replays/after-action/generate \\"
 echo "     -H 'Content-Type: application/json' \\"
 echo "     -H 'Authorization: Bearer \$RESTOREIQ_API_KEY' \\"
 echo "     -d '{\"tenantId\": \"DEMO_TENANT\", \"outageId\": \"YOUR_OUTAGE_UUID\"}'"
 echo ""
-echo "4. Export PDF Report (returns tokenized download_url):"
+echo "4. Export PDF Report (requires auth, returns tokenized download_url):"
 echo "   curl -X POST $BASE_URL/api/v1/reports/after-action/export \\"
 echo "     -H 'Content-Type: application/json' \\"
 echo "     -H 'Authorization: Bearer \$RESTOREIQ_API_KEY' \\"
