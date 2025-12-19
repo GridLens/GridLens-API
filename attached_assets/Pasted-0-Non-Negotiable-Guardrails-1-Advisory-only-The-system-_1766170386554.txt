@@ -1,0 +1,251 @@
+0) Non-Negotiable Guardrails
+	1.	Advisory-only: The system MUST NOT execute switching, SCADA, breaker controls, or any operational commands.
+	2.	Human gate for production: AI may generate code and migrations, but must not apply schema migrations to pilot/prod or deploy to public endpoint without explicit approval.
+	3.	No secret leakage: Never print or log DB passwords, AWS keys, tokens.
+	4.	Staged environments:
+	•	DEV schema / DB
+	•	PILOT schema / DB
+	•	PROD schema / DB
+	5.	Auditability: All promotions, runs, exports write an audit event (events table) and are traceable by run_id, replay_id, outage_id.
+
+⸻
+
+1) Definition of Done (DOD)
+
+Deliver the following with working endpoints, DB schema, and smoke tests:
+
+A) API endpoints (must work)
+	•	POST /v1/provisionals/promote  (Step 16)
+	•	POST /v1/fault-zones/rank      (Step 17)
+	•	POST /v1/restoration-options/generate (Step 18)
+	•	POST /v1/crews/recommendations/generate (Step 19)
+	•	POST /v1/replays/after-action/generate (Step 20)
+	•	POST /v1/reports/after-action/export   (Step 21, PDF/DOCX via Python; upload to S3; signed URLs)
+
+B) DB schema (Azure Postgres)
+
+Must exist + indexed:
+	•	events, outages, outage_impacts, recommendation_runs
+	•	provisional_outages (+ events.prov_outage_id)
+	•	fault_zones, fault_zone_rankings
+	•	restoration_options
+	•	crew_recommendations (+ crews, crew_skills, optional crew_status)
+	•	operator_feedback (optional but supported)
+	•	outage_replays with summary jsonb and report_blob_ref jsonb
+
+C) Report exporter
+	•	Generates PDF + DOCX
+	•	Uploads to S3 under: reports/<tenant>/<outage>/<replay>/...
+	•	Returns signed URLs (default 7 days)
+	•	Writes outage_replays.report_blob_ref JSON with file URLs
+
+D) Retool compatibility
+	•	Endpoints return stable, predictable JSON
+	•	No giant payloads in default responses (timeline is stored in outage_replays.summary; response may include summary or minimal mode if needed)
+
+E) Tests and smoke script
+	•	SQL smoke queries (5–10) to validate tables + indexes
+	•	API smoke flow that runs: rank → replay → export (and optional promote/options/crews)
+	•	Deterministic outputs (same inputs → stable ranking order)
+
+⸻
+
+2) Required Runtime & Dependencies
+
+Node (Replit backend)
+	•	TypeScript Node/Express
+	•	@aws-sdk/client-s3
+	•	@aws-sdk/s3-request-presigner
+	•	Postgres driver (existing)
+
+Python (Replit runtime)
+	•	reportlab
+	•	python-docx
+
+⸻
+
+3) Required Secrets / Env Vars (Replit)
+
+Database
+	•	DATABASE_URL (Azure Postgres full connection string)
+
+AWS/S3
+	•	AWS_REGION
+	•	S3_BUCKET_NAME
+	•	AWS_ACCESS_KEY_ID (if not using IAM role)
+	•	AWS_SECRET_ACCESS_KEY (if not using IAM role)
+	•	S3_PREFIX=reports
+	•	S3_URL_MODE=signed
+	•	S3_SIGNED_URL_TTL_SECONDS=604800
+
+App
+	•	NODE_ENV=development|production
+	•	PORT
+	•	Any auth JWT secrets used by your existing middleware
+
+⸻
+
+4) Build Steps (AI must execute in this order)
+
+AI must implement as atomic milestones, each producing a diff + a short verification log.
+
+Milestone 1 — Schema & migrations
+	1.	Create migration files for all RestoreIQ tables (idempotent: IF NOT EXISTS).
+	2.	Add required indexes:
+	•	events(tenant_id, canon_outage_id, occurred_at)
+	•	events(tenant_id, prov_outage_id)
+	•	outages(tenant_id, outage_id)
+	•	recommendation_runs(tenant_id, outage_id, run_at)
+	•	outage_replays(tenant_id, outage_id, generated_at desc)
+
+Deliverables
+	•	/migrations/XXXX_restoreiq_core.sql (or your project’s migration system)
+	•	A schema verification query bundle
+
+Human Gate
+	•	Apply migrations only to DEV unless explicitly approved.
+
+⸻
+
+Milestone 2 — Implement Step 16–21 endpoints
+
+Implement in dependency order:
+	1.	Step 16 promoteProvisionalsForOutage
+	2.	Step 17 rankFaultZonesV1
+	3.	Step 18 generateRestorationOptionsV1
+	4.	Step 19 generateCrewRecommendationsV1
+	5.	Step 20 generateAfterActionReplayV1
+	6.	Step 21 exportAfterActionReportV1 (Node calls Python renderer; uploads to S3)
+
+Deliverables
+	•	Routes + controllers + services files
+	•	Input validation for each endpoint
+	•	Clear error handling
+
+Constraints
+	•	All write operations must be in transactions.
+	•	Advisory-only language in narratives and reports.
+
+⸻
+
+Milestone 3 — Python report renderer
+
+Create: scripts/render_after_action_report.py
+	•	Inputs: --summary_json, --brand_json, optional --out_pdf, --out_docx
+	•	Output: polished PDF & DOCX with:
+	•	Cover + KPI row
+	•	Executive summary
+	•	High-signal timeline
+	•	Findings (zones/options/crews)
+	•	Footer disclaimers and page numbers (PDF)
+
+Deliverables
+	•	Working PDF/DOCX locally in Replit
+	•	Minimal typography and table formatting
+
+⸻
+
+Milestone 4 — S3 storage adapter
+
+Create: src/services/storage.s3.ts
+	•	Upload output files to S3
+	•	Return signed URLs (default)
+	•	Update outage_replays.report_blob_ref with JSON
+
+Deliverables
+	•	S3 adapter module
+	•	Exporter service uses S3 adapter
+	•	Example policy documented
+
+⸻
+
+Milestone 5 — Smoke test flow (end-to-end)
+
+Create a script or documented curl steps:
+
+Flow
+	1.	Choose an outage_id that has canonical events
+	2.	POST /v1/fault-zones/rank
+	3.	POST /v1/replays/after-action/generate
+	4.	POST /v1/reports/after-action/export
+	5.	Validate returned URLs open (signed) and report_blob_ref updated
+
+Deliverables
+	•	/scripts/smoke_restoreiq.sh (or Postman collection JSON)
+	•	SQL smoke checks
+
+⸻
+
+5) Coding Standards & Requirements
+	•	TypeScript strict mode where possible
+	•	No hard-coded tenant IDs
+	•	No raw secret logging
+	•	Deterministic ranking: sort ties consistently (e.g., by meters desc then zone_id)
+	•	Responses must include:
+	•	status
+	•	primary ids (run_id, replay_id, outage_id)
+	•	counts (zones/options/crews)
+
+⸻
+
+6) Database Design Requirements (must satisfy)
+	•	Every generated record links back:
+	•	fault_zone_rankings.run_id → recommendation_runs.run_id
+	•	restoration_options.run_id → recommendation_runs.run_id
+	•	crew_recommendations.run_id → recommendation_runs.run_id
+	•	outage_replays.outage_id → outages.outage_id
+	•	outage_replays.summary is JSONB and contains:
+	•	milestones, metrics, narrative, top recommendations, evidence counts
+
+⸻
+
+7) Operational Safety Language (must appear)
+
+In:
+	•	API narratives
+	•	PDF/DOCX report footer or first pages
+
+Text must include:
+	•	“Advisory-only recommendations.”
+	•	“Operator validation required.”
+	•	“Generated from telemetry available at the time of generation.”
+
+⸻
+
+8) Human Approval Gates (Stop Points)
+
+AI must stop and present a diff summary at these gates:
+
+Gate A — After schema migrations are generated
+	•	Provide migration files
+	•	Provide rollback steps
+	•	Wait for “Approve migrations in DEV”
+
+Gate B — After endpoints compile and unit tests pass
+	•	Provide list of endpoints + sample payloads
+	•	Provide smoke test steps
+	•	Wait for “Approve deployment to DEV”
+
+Gate C — Before any PILOT/PROD migrations or deployment
+	•	Provide release notes
+	•	Provide rollback plan
+	•	Wait for explicit approval
+
+⸻
+
+9) Deliverable Summary (final output from AI)
+
+AI must produce:
+	1.	File tree with all created files
+	2.	Migrations
+	3.	Endpoint list + sample requests
+	4.	Smoke test script
+	5.	“Ready for Approval” checklist
+
+⸻
+
+10) Copy/Paste Prompt for the AI Coding Agent
+
+Use this exact instruction set in your coding agent:
+
+Build the GridLens RestoreIQ module on Replit Node/Express with Azure Postgres and S3 storage as specified. Implement Steps 16–21 endpoints, create idempotent migrations for all required tables and indexes, build Python PDF/DOCX renderer (ReportLab + python-docx), implement S3 adapter returning signed URLs, and add an end-to-end smoke test script. Follow guardrails: advisory-only, no production changes without approval, no secret logging, transactional writes, deterministic outputs. Output a diff summary + verification steps at each gate.
