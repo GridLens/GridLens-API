@@ -86,8 +86,17 @@ echo ""
 
 HEALTH=$(curl -s "$BASE_URL/api/v1/restoreiq/health")
 check_response "$HEALTH" "RestoreIQ" "Health check"
+
+STORAGE_PROVIDER=$(echo "$HEALTH" | grep -o '"provider":"[^"]*"' | head -1 | cut -d'"' -f4)
+AZURE_CONFIGURED=$(echo "$HEALTH" | grep -o '"azure_configured":[^,}]*' | head -1 | cut -d':' -f2)
+
+echo ""
+echo -e "${YELLOW}Storage Configuration:${NC}"
+echo "  Provider: ${STORAGE_PROVIDER:-unknown}"
+echo "  Azure Configured: ${AZURE_CONFIGURED:-false}"
+echo ""
 echo "Response:"
-echo "$HEALTH" | head -c 300
+echo "$HEALTH" | head -c 500
 echo ""
 echo ""
 

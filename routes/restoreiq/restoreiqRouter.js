@@ -12,16 +12,10 @@
  */
 
 import express from "express";
-import fs from "fs";
-import path from "path";
 import crypto from "crypto";
-import { fileURLToPath } from "url";
 import { rankFaultZones, getRankingByRunId } from "../../services/restoreiq/faultZoneRanking.js";
 import { generateAfterActionReplay, getReplayById, getReplaysByOutage } from "../../services/restoreiq/outageReplayGenerator.js";
-import { exportAfterActionReport, getReportBlobRef, getReportFilePath } from "../../services/restoreiq/reportExporter.js";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { exportAfterActionReport, getReportBlobRef, getReportStream, getStorageProviderInfo } from "../../services/restoreiq/reportExporter.js";
 
 const router = express.Router();
 
@@ -314,7 +308,7 @@ router.post('/reports/after-action/export', async (req, res) => {
 
 /**
  * GET /api/v1/reports/download?token=xxx
- * Download PDF using secure tokenized link (streams PDF)
+ * Download PDF using secure tokenized link (streams from local or Azure)
  */
 router.get('/reports/download', async (req, res) => {
   try {
@@ -344,26 +338,26 @@ router.get('/reports/download', async (req, res) => {
       });
     }
     
-    const filePath = await getReportFilePath(tokenData.tenantId, tokenData.replayId);
+    const reportData = await getReportStream(tokenData.tenantId, tokenData.replayId);
     
-    if (!filePath || !fs.existsSync(filePath)) {
+    if (!reportData || !reportData.stream) {
       return res.status(404).json({
         status: 'error',
         error: 'Report file not found. Generate a new export.'
       });
     }
     
-    const filename = path.basename(filePath);
+    console.log(`[RestoreIQ] Streaming PDF from ${reportData.provider}: ${reportData.fileName}`);
     
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Type', reportData.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${reportData.fileName}"`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Storage-Provider', reportData.provider);
     
-    const fileStream = fs.createReadStream(filePath);
-    fileStream.pipe(res);
+    reportData.stream.pipe(res);
     
-    fileStream.on('error', (err) => {
-      console.error('[RestoreIQ] File stream error:', err.message);
+    reportData.stream.on('error', (err) => {
+      console.error('[RestoreIQ] Stream error:', err.message);
       if (!res.headersSent) {
         res.status(500).json({ status: 'error', error: 'Failed to stream file' });
       }
@@ -429,24 +423,40 @@ router.get('/reports/:replayId/info', async (req, res) => {
 /**
  * RestoreIQ Health check endpoint (namespaced to avoid collision)
  */
-router.get('/restoreiq/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    service: 'RestoreIQ',
-    version: '1.0.0',
-    endpoints: [
-      'POST /api/v1/fault-zones/rank',
-      'GET  /api/v1/fault-zones/rankings/:runId',
-      'POST /api/v1/replays/after-action/generate',
-      'GET  /api/v1/replays/:replayId',
-      'GET  /api/v1/replays/outage/:outageId',
-      'POST /api/v1/reports/after-action/export',
-      'GET  /api/v1/reports/download?token=xxx',
-      'GET  /api/v1/reports/:replayId/info',
-      'GET  /api/v1/restoreiq/health'
-    ],
-    advisory: ADVISORY_DISCLAIMER
-  });
+router.get('/restoreiq/health', async (req, res) => {
+  try {
+    const storageInfo = await getStorageProviderInfo();
+    
+    res.json({
+      status: 'ok',
+      service: 'RestoreIQ',
+      version: '1.0.0',
+      storage: {
+        provider: storageInfo.provider,
+        azure_configured: storageInfo.azure_configured
+      },
+      endpoints: [
+        'POST /api/v1/fault-zones/rank',
+        'GET  /api/v1/fault-zones/rankings/:runId',
+        'POST /api/v1/replays/after-action/generate',
+        'GET  /api/v1/replays/:replayId',
+        'GET  /api/v1/replays/outage/:outageId',
+        'POST /api/v1/reports/after-action/export',
+        'GET  /api/v1/reports/download?token=xxx',
+        'GET  /api/v1/reports/:replayId/info',
+        'GET  /api/v1/restoreiq/health'
+      ],
+      advisory: ADVISORY_DISCLAIMER
+    });
+  } catch (err) {
+    res.json({
+      status: 'ok',
+      service: 'RestoreIQ',
+      version: '1.0.0',
+      storage: { provider: 'unknown', error: err.message },
+      advisory: ADVISORY_DISCLAIMER
+    });
+  }
 });
 
 export default router;

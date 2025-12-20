@@ -1,0 +1,40 @@
+You are working inside the Replit project: gridlens-api (Node/Express backend).
+
+Goal: Complete C2 (Azure Blob storage integration) for RestoreIQ PDF exports in a safe, reversible way.
+
+Constraints:
+- Do NOT modify existing GridLens KPI endpoints or existing routes unrelated to RestoreIQ.
+- Do NOT remove local PDF export capability.
+- Implement a Storage Adapter pattern: local + Azure Blob, switchable via env vars.
+- Keep current behavior as default (LOCAL) unless Azure env vars are present.
+- Add clear logs (no secrets), and fail gracefully back to LOCAL if Azure config is incomplete.
+- Do not expose filesystem paths in API responses; keep token-based download flow.
+
+Work to do:
+1) Read current RestoreIQ report exporter code and locate where PDFs are written and where download tokens are generated.
+2) Create /services/restoreiq/storage/storageAdapter.js with interface:
+   - init()
+   - putPdf(bufferOrPath, fileName, contentType) -> returns { blobRef, publicUrl? }
+   - getPdf(blobRef) -> returns stream or buffer
+3) Implement:
+   - /services/restoreiq/storage/stores/local.js (uses current local filesystem behavior)
+   - /services/restoreiq/storage/stores/azureBlob.js using @azure/storage-blob
+4) Add env vars support:
+   - STORAGE_PROVIDER=local|azure (default local)
+   - AZURE_STORAGE_CONNECTION_STRING (required for azure)
+   - AZURE_BLOB_CONTAINER (required for azure)
+   - Optional: AZURE_BLOB_PREFIX=restoreiq
+5) Update reportExporter.js so:
+   - It generates PDF as it does now
+   - If STORAGE_PROVIDER=azure and azure vars exist, upload PDF and store blobRef in restoreiq.outage_replays.report_blob_ref (jsonb)
+   - Download endpoint streams from Azure when blobRef indicates azure, else from local
+6) Update smoke_restoreiq.sh:
+   - No changes to existing tests except:
+     - Print whether local or azure is being used.
+     - If azure configured, verify export returns download_url and download returns a valid PDF.
+7) Do NOT change database schema.
+8) Provide me:
+   - List of files changed
+   - Exact env vars I must add in Replit Secrets
+   - The one command to rerun smoke test
+Stop and ask for my approval before making any destructive changes.

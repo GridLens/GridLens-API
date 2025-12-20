@@ -9,6 +9,7 @@
     "dev": "nodemon index.js"
   },
   "dependencies": {
+    "@azure/storage-blob": "^12.29.1",
     "@sendgrid/mail": "^8.1.6",
     "bullmq": "^5.66.0",
     "cors": "^2.8.5",

@@ -3,6 +3,7 @@
  * 
  * Exports after-action reports to PDF format.
  * Uses a simple PDF generation approach with formatted text.
+ * Supports multiple storage backends via Storage Adapter (local/azure).
  * 
  * ADVISORY ONLY - Reports are for informational purposes only.
  */
@@ -12,6 +13,7 @@ import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import * as storageAdapter from "./storage/storageAdapter.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,6 +29,8 @@ const ADVISORY_DISCLAIMER = "Advisory-only recommendations. Operator validation 
  * @returns {Object} Export result with file path
  */
 export async function exportAfterActionReport({ tenantId, replayId, outageId }) {
+  await storageAdapter.init();
+  
   const replayResult = await pool.query(
     `SELECT r.*, o.start_at as outage_start, o.end_at as outage_end,
             o.primary_feeder_id, o.affected_customers, o.severity
@@ -47,22 +51,23 @@ export async function exportAfterActionReport({ tenantId, replayId, outageId }) 
   const recommendations = replay.recommendations || [];
   const timeline = replay.timeline || {};
   
-  const reportDir = path.join(__dirname, '../../reports');
-  if (!fs.existsSync(reportDir)) {
-    fs.mkdirSync(reportDir, { recursive: true });
+  const tempDir = path.join(__dirname, '../../reports');
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
   }
   
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const pdfFilename = `after-action-${replay.outage_id}-${timestamp}.pdf`;
-  const pdfPath = path.join(reportDir, pdfFilename);
+  const tempPdfPath = path.join(tempDir, pdfFilename);
   
   const reportContent = buildReportContent(replay, summary, metrics, findings, recommendations, timeline);
   
-  await generatePdfReport(reportContent, pdfPath);
+  await generatePdfReport(reportContent, tempPdfPath);
+  
+  const { blobRef } = await storageAdapter.putPdf(tempPdfPath, pdfFilename, 'application/pdf');
   
   const reportBlobRef = {
-    pdf_path: `/reports/${pdfFilename}`,
-    pdf_generated_at: new Date().toISOString(),
+    ...blobRef,
     format: 'pdf',
     advisory: ADVISORY_DISCLAIMER
   };
@@ -74,11 +79,14 @@ export async function exportAfterActionReport({ tenantId, replayId, outageId }) 
     [JSON.stringify(reportBlobRef), replayId]
   );
   
+  const providerName = storageAdapter.getProviderName();
+  console.log(`[RestoreIQ] PDF exported via ${providerName}: ${pdfFilename}`);
+  
   return {
     status: 'completed',
     replay_id: replayId,
     outage_id: replay.outage_id,
-    pdf_path: reportBlobRef.pdf_path,
+    storage_provider: providerName,
     generated_at: reportBlobRef.pdf_generated_at,
     advisory: ADVISORY_DISCLAIMER
   };
@@ -292,18 +300,25 @@ export async function getReportBlobRef(tenantId, replayId) {
   return result.rows[0]?.report_blob_ref || null;
 }
 
-export async function getReportFilePath(tenantId, replayId) {
+export async function getReportStream(tenantId, replayId) {
   const blobRef = await getReportBlobRef(tenantId, replayId);
   
-  if (!blobRef || !blobRef.pdf_path) {
+  if (!blobRef) {
     return null;
   }
   
-  const relativePath = blobRef.pdf_path.startsWith('/') 
-    ? blobRef.pdf_path.slice(1) 
-    : blobRef.pdf_path;
+  await storageAdapter.init();
   
-  const fullPath = path.join(__dirname, '../../', relativePath);
+  const stream = await storageAdapter.getPdf(blobRef);
   
-  return fullPath;
+  return {
+    stream,
+    fileName: blobRef.file_name || `report-${replayId}.pdf`,
+    contentType: blobRef.content_type || 'application/pdf',
+    provider: blobRef.provider || 'local'
+  };
+}
+
+export async function getStorageProviderInfo() {
+  return storageAdapter.getProviderInfo();
 }
