@@ -10,6 +10,7 @@ import { fileURLToPath } from "url";
 import nodemailer from "nodemailer";
 
 import systemHealthRouter from "./routes/systemHealthRouter.js";
+import amiSystemHealthRouter from "./routes/ami/systemHealthRouter.js";
 import waterLeaksRouter from "./routes/waterLeaksRouter.js";
 import electricUsageRouter from "./routes/electricUsageRouter.js";
 import energyLossRouter from "./routes/energyLossRouter.js";
@@ -188,6 +189,11 @@ app.use('/api/v1', restoreiqRouter);
 
 // Serve generated reports
 app.use('/reports', express.static(path.join(__dirname, 'reports')));
+
+// -----------------------------
+// AMI System Health (MeterIQ Dashboard)
+// -----------------------------
+app.use('/api/ami/system/health', amiSystemHealthRouter);
 
 // -----------------------------
 // AMI Emulator Endpoints
