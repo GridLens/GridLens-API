@@ -1,0 +1,180 @@
+Role:
+You are a senior backend platform engineer building an enterprise utility-analytics platform called GridLens Energy.
+This platform powers MeterIQ, RestoreIQ, and FieldOps from a single API and is consumed by a Retool enterprise application.
+You must implement missing API contracts so the Retool dashboards populate correctly.
+
+🔑 CONTEXT (DO NOT CHANGE)
+
+API Host: https://gridlens-api-cdean5.replit.app
+
+Backend: Node.js + Express
+
+Frontend: Retool (already built)
+
+Tenant for demo: DEMO_TENANT
+
+Retool is already calling the following System Health endpoints
+
+Retool UI is correct — backend is incomplete
+
+🎯 OBJECTIVE
+
+Implement production-grade System Health API endpoints so that MeterIQ → System Health and Executive Overview dashboards are fully populated.
+
+These endpoints must:
+
+Always return valid JSON
+
+Never return empty arrays for DEMO_TENANT
+
+Use realistic utility-grade demo data
+
+Be deterministic (stable values, not random every call)
+
+Be easily replaceable with real DB queries later
+
+📌 REQUIRED ENDPOINTS TO IMPLEMENT
+1️⃣ System Health Summary
+GET /api/ami/system/health/summary
+
+
+Query Params
+
+tenantId (required)
+
+Return
+
+{
+  "tenantId": "DEMO_TENANT",
+  "systemHealthIndex": 86,
+  "status": "Good",
+  "dataConfidence": "High",
+  "affectedMeters": 412,
+  "estimatedDailyExposure": 18750,
+  "exceptionVelocity": "Stable",
+  "generatedAt": "ISO_TIMESTAMP"
+}
+
+2️⃣ 24-Hour Reporting Status
+GET /api/ami/system/health/reporting24h
+
+
+Return
+
+{
+  "expectedMeters": 25000,
+  "reportingMeters": 24112,
+  "readSuccessRatePct": 96.4,
+  "topNonReportingFeeders": [
+    { "feederId": "FD-102", "missingPct": 18.2 },
+    { "feederId": "FD-214", "missingPct": 14.9 }
+  ]
+}
+
+3️⃣ Feeder Exception Risk
+GET /api/ami/system/health/feeders/exceptions
+
+
+Return
+
+[
+  {
+    "feederId": "FD-102",
+    "riskBand": "High",
+    "exceptionScore": 78,
+    "affectedMeters": 312
+  },
+  {
+    "feederId": "FD-214",
+    "riskBand": "Medium",
+    "exceptionScore": 52,
+    "affectedMeters": 188
+  }
+]
+
+4️⃣ Meters Requiring Review
+GET /api/ami/system/health/meters/review
+
+
+Return
+
+[
+  {
+    "meterId": "MTR-88412",
+    "issue": "No reads in 48h",
+    "severity": "High",
+    "feederId": "FD-102"
+  },
+  {
+    "meterId": "MTR-77109",
+    "issue": "Low voltage detected",
+    "severity": "Medium",
+    "feederId": "FD-214"
+  }
+]
+
+5️⃣ Power Quality
+GET /api/ami/system/health/powerquality
+
+
+Return
+
+{
+  "lowVoltageReadsPct": 2.6,
+  "highVoltageReadsPct": 0.4,
+  "affectedMeters": 621
+}
+
+6️⃣ Communications Health
+GET /api/ami/system/health/comms
+
+
+Return
+
+{
+  "meshLatencyMs": 184,
+  "packetLossPct": 1.2,
+  "degradedNodes": 17
+}
+
+🧠 IMPLEMENTATION RULES
+
+All endpoints must live under /api/ami/system/health/*
+
+Use Express routers
+
+Validate tenantId
+
+If tenantId !== DEMO_TENANT, return empty but valid JSON
+
+Add generatedAt timestamps where appropriate
+
+No randomization — values must be stable across refreshes
+
+Do not modify existing endpoints
+
+Do not modify Retool queries
+
+✅ SUCCESS CRITERIA
+
+Retool System Health pages no longer show empty states
+
+Executive Overview KPIs populate immediately
+
+No API errors or warnings in Retool
+
+Ready for pilot demos without disclaimers
+
+🚀 FINAL INSTRUCTION
+
+Proceed to:
+
+Create the missing routes
+
+Wire them into the Express app
+
+Export the router cleanly
+
+Ensure all endpoints return 200 OK with JSON
+
+END INSTRUCTION
