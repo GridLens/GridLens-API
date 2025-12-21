@@ -2703,4 +2703,8 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`GridLens API + Dashboard running on port ${PORT}`);
   console.log(`CORS enabled for all origins`);
   console.log(`Request logging and timing enabled`);
+  console.log(`[Routes] Mounted:`);
+  console.log(`  - /api/ami/system/health/* (MeterIQ System Health)`);
+  console.log(`  - /api/v1/restoreiq/* (RestoreIQ Dashboard)`);
+  console.log(`  - /api/kpi/* (Legacy KPI endpoints)`);
 });
