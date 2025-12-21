@@ -133,6 +133,12 @@ const authMiddleware = (req, res, next) => {
     return next();
   }
 
+  // Allow RestoreIQ dashboard demo endpoints (in-memory only, no DB writes)
+  if (req.path.startsWith('/api/v1/restoreiq/incidents/') && req.path.endsWith('/actions')) {
+    console.log('[Auth] Allowing demo action endpoint:', req.path);
+    return next();
+  }
+
   // Require API key for POST, PATCH, DELETE operations
   const authHeader = req.headers.authorization;
   
