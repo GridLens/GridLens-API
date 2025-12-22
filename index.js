@@ -11,6 +11,7 @@ import nodemailer from "nodemailer";
 
 import systemHealthRouter from "./routes/systemHealthRouter.js";
 import amiSystemHealthRouter from "./routes/ami/systemHealthRouter.js";
+import amiHealthRouter from "./routes/ami/amiHealthRouter.js";
 import waterLeaksRouter from "./routes/waterLeaksRouter.js";
 import electricUsageRouter from "./routes/electricUsageRouter.js";
 import energyLossRouter from "./routes/energyLossRouter.js";
@@ -194,6 +195,7 @@ app.use('/reports', express.static(path.join(__dirname, 'reports')));
 // AMI System Health (MeterIQ Dashboard)
 // -----------------------------
 app.use('/api/ami/system/health', amiSystemHealthRouter);
+app.use('/api/ami/health', amiHealthRouter);
 
 // -----------------------------
 // AMI Emulator Endpoints
@@ -2705,6 +2707,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`Request logging and timing enabled`);
   console.log(`[Routes] Mounted:`);
   console.log(`  - /api/ami/system/health/* (MeterIQ System Health)`);
+  console.log(`  - /api/ami/health/* (AMI Health)`);
   console.log(`  - /api/v1/restoreiq/* (RestoreIQ Dashboard)`);
   console.log(`  - /api/kpi/* (Legacy KPI endpoints)`);
 });
