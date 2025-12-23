@@ -21,6 +21,8 @@ import fieldOpsRouter from "./routes/fieldOpsRouter.js";
 import derivedMetricsRouter from "./routes/derivedMetricsRouter.js";
 import restoreiqRouter from "./routes/restoreiq/restoreiqRouter.js";
 import auditRouter from "./routes/admin/auditRouter.js";
+import tenantRouter from "./routes/admin/tenantRouter.js";
+import attachTenantContext from "./middleware/tenantContext.js";
 import { 
   buildAndEnqueueReadBatches, 
   createEvent, 
@@ -148,6 +150,12 @@ const authMiddleware = (req, res, next) => {
     return next();
   }
 
+  // Allow tenant admin endpoints from Retool (trusted frontend)
+  if (req.path.startsWith('/api/admin/tenant/')) {
+    console.log('[Auth] Allowing tenant admin endpoint:', req.path);
+    return next();
+  }
+
   // Require API key for POST, PATCH, DELETE operations
   const authHeader = req.headers.authorization;
   
@@ -205,9 +213,13 @@ app.use('/api/ami/system/health', amiSystemHealthRouter);
 app.use('/api/ami/health', amiHealthRouter);
 
 // -----------------------------
-// Admin API (Audit Logs)
+// Admin API (Audit Logs, Tenant Config)
 // -----------------------------
 app.use('/api/admin/audit', auditRouter);
+app.use('/api/admin/tenant', tenantRouter);
+
+// Apply tenant context middleware to API routes
+app.use('/api', attachTenantContext);
 
 // -----------------------------
 // AMI Emulator Endpoints
@@ -2722,5 +2734,6 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`  - /api/ami/health/* (AMI Health)`);
   console.log(`  - /api/v1/restoreiq/* (RestoreIQ Dashboard)`);
   console.log(`  - /api/admin/audit/* (Audit Logs)`);
+  console.log(`  - /api/admin/tenant/* (Tenant Config)`);
   console.log(`  - /api/kpi/* (Legacy KPI endpoints)`);
 });
