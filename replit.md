@@ -172,6 +172,43 @@ The system supports per-tenant environment modes for operational flexibility:
 - FieldOps (queue, stats)
 - RestoreIQ (incidents, KPIs)
 
+### Tenant Entitlements
+Feature-based access control with plan-based enforcement:
+
+**Feature Flags:**
+- `meteriq_enabled` - Access to MeterIQ System Health endpoints
+- `restoreiq_enabled` - Access to RestoreIQ fault zone and replay endpoints
+- `fieldops_enabled` - Access to FieldOps work order endpoints
+- `admin_enabled` - Access to Admin configuration endpoints
+- `audit_logs_enabled` - Access to audit log endpoints
+
+**Enforcement:**
+- `middleware/enforceEntitlement.js` - Blocks requests with 403 if feature disabled
+- Suspended tenants receive 403 on all API requests
+
+**Admin Endpoints:**
+- `POST /api/admin/tenant/status` - Set tenant status (ACTIVE/SUSPENDED)
+- `POST /api/admin/tenant/features` - Update tenant feature flags
+
+### Audit Logging
+Enterprise-grade audit logging with non-blocking writes:
+
+**Schema:** `restoreiq.audit_logs` table with fields:
+- id, occurred_at, tenant_id, actor_type, actor_id, actor_label
+- source, module, action, object_type, object_id
+- severity (INFO/WARN/CRITICAL), status (SUCCESS/FAILURE)
+- message, diff (JSONB), metadata (JSONB)
+
+**Instrumented Actions:**
+- RestoreIQ: RANK_FAULT_ZONES, GENERATE_REPLAY, EXPORT_REPORT, DOWNLOAD_REPORT
+- FieldOps: WORKORDER_UPDATE, WORKORDER_ASSIGN, WORKORDER_CLOSE, WORKORDER_START
+- Admin: TENANT_ENV_TOGGLE, TENANT_SUSPEND, TENANT_ACTIVATE, TENANT_FEATURES_UPDATE
+
+**Query Endpoints:**
+- `GET /api/admin/audit/logs` - Query logs with filters (tenantId, module, action, severity, from, to)
+- `GET /api/admin/audit/logs/:id` - Get single audit log by ID
+- `POST /api/admin/audit/logs` - Write audit log (for Retool integration)
+
 ## External Dependencies
 
 ### Runtime Dependencies
