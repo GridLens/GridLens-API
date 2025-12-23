@@ -1,0 +1,109 @@
+YOU ARE THE LEAD ENGINEER. TAKE FULL CONTROL.
+
+GOAL:
+Implement 3 enterprise platform capabilities across GridLens (backend + Retool) with ZERO regressions:
+1) Wire Audit Logs into every module action
+2) Implement tenant-based entitlements (plan + feature flags) with enforcement
+3) Create a Demo / Live environment switch per tenant
+
+NON-NEGOTIABLES:
+- Do NOT break existing working endpoints, workflows, or Retool pages.
+- No shortcuts, no “demo-only” hacks. Production-grade patterns only.
+- Changes must be minimal, reversible, and versioned.
+- All behaviors must be tenant-scoped and consistent across MeterIQ, RestoreIQ, FieldOps, Admin.
+- Always prefer additive changes over refactors.
+
+CURRENT ARCHITECTURE:
+- One backend: gridlens-api (Node/Express + Postgres)
+- One Retool “Ops Console” app with modules:
+  MeterIQ, RestoreIQ, FieldOps, Admin
+- RestoreIQ workflow trigger already works via webhook + X-Workflow-API-Key.
+- System Health endpoints now return 200 on public Replit domain.
+
+PART A — AUDIT LOGGING (Backend first)
+1) Create Postgres table: audit_logs (schema: restoreiq or gridlens) with fields:
+   - id UUID PK (gen_random_uuid)
+   - occurred_at timestamptz default now()
+   - tenant_id text not null
+   - actor_type text not null ("user"|"system"|"workflow")
+   - actor_id text null
+   - actor_label text null
+   - source text not null ("retool"|"api"|"workflow")
+   - module text not null ("MeterIQ"|"RestoreIQ"|"FieldOps"|"Admin")
+   - action text not null (e.g., REPORT_EXPORT, WORKORDER_UPDATE, ROLE_UPDATE)
+   - object_type text not null
+   - object_id text null
+   - severity text not null default 'INFO' (INFO|WARN|CRITICAL)
+   - status text not null default 'SUCCESS' (SUCCESS|FAILURE)
+   - message text null
+   - diff jsonb null (before/after)
+   - metadata jsonb null (ip, userAgent, requestId, path, method)
+2) Add audit logger service with non-blocking behavior:
+   - If audit insert fails, log warning but do NOT fail primary request.
+3) Add request context middleware:
+   - requestId, ip, userAgent, route, method
+4) Instrument key actions (minimum set):
+   - RestoreIQ: rank fault zones, generate replay, export report, download report
+   - FieldOps: create/update/assign/close work order
+   - Admin: tenant create/update/status, user create/update, role/permission changes
+5) Add API endpoints:
+   - GET /api/admin/audit/logs?tenantId=&from=&to=&severity=&module=&action=&search=
+   - GET /api/admin/audit/logs/:id?tenantId=
+   - POST /api/admin/audit/logs (internal use from Retool ok)
+6) Provide curl tests and ensure all responses are JSON.
+
+PART B — TENANT ENTITLEMENTS (Backend enforcement + UI gating)
+1) Create tenants config store (table) if not present:
+   - tenant_id (PK), name, status (ACTIVE|SUSPENDED),
+     plan (STARTER|PRO|ENTERPRISE),
+     features jsonb,
+     environment_mode (LIVE|DEMO)
+2) Create middleware:
+   - attachTenantContext(req): loads tenant config once per request (short TTL cache OK)
+   - enforceEntitlement(featureKey): blocks with 403 JSON if feature disabled or tenant suspended
+3) Apply enforcement:
+   - /api/ami/* => meteriq_enabled
+   - /api/v1/restoreiq/* => restoreiq_enabled
+   - /api/fieldops/* => fieldops_enabled
+   - /api/admin/* => admin_enabled
+4) Add endpoint:
+   - GET /api/admin/tenant/config?tenantId=
+   returns { tenantId, plan, status, features, environment_mode }
+
+PART C — DEMO/LIVE ENV SWITCH (Tenant-controlled, enforced)
+1) Add endpoint:
+   - POST /api/admin/tenant/environment { tenantId, environment_mode }
+2) For DEMO mode:
+   - Return deterministic “board-safe” datasets with the EXACT same JSON shapes as LIVE.
+   - Do NOT randomize. Do NOT change field names. Do NOT change status codes.
+   - Implement DEMO datasets for:
+     - MeterIQ system health endpoints
+     - RestoreIQ rank/replay/export inputs
+     - FieldOps queue endpoints
+3) Ensure LIVE mode uses current behavior.
+
+PART D — RETOOL IMPLEMENTATION (After backend is ready)
+1) Add one query: q_tenant_config (GET /api/admin/tenant/config?tenantId={{activeTenant}})
+2) Create global transformer: entitlements = q_tenant_config.data.features
+3) Gate navigation + pages:
+   - Hide module nav groups based on entitlements
+   - If user lands on disabled page, show “Access Restricted” panel (enterprise wording)
+4) Audit event wiring (non-blocking):
+   - Create q_audit_log_write (POST /api/admin/audit/logs)
+   - Create JS helper logAudit(...) that fires after:
+     - RestoreIQ workflow trigger/export/download
+     - FieldOps actions
+     - Admin changes
+5) Add global environment indicator (LIVE/DEMO) + Admin toggle:
+   - Toggle calls POST /api/admin/tenant/environment
+   - After toggle: refresh q_tenant_config + refresh data across current page
+   - Add subtle DEMO watermark on dashboards when DEMO
+
+DELIVERABLES REQUIRED:
+- List of files changed/created (backend + retool queries/components)
+- Exact DB migration SQL
+- Exact endpoint list + sample JSON responses
+- Exact Retool query names and what triggers them
+- No regressions. Keep existing module pages intact.
+
+NOW EXECUTE THIS PLAN AND PROVIDE A FINAL CHECKLIST FOR ME TO VALIDATE IT END-TO-END.

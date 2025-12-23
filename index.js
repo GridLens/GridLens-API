@@ -182,6 +182,9 @@ const authMiddleware = (req, res, next) => {
 app.use(authMiddleware);
 app.use(express.static(path.join(__dirname, "public")));
 
+// Apply tenant context middleware to all API routes (before routers)
+app.use('/api', attachTenantContext);
+
 // Root route - redirect to dashboard
 app.get('/', (req, res) => {
   res.redirect('/dashboard.html');
@@ -217,9 +220,6 @@ app.use('/api/ami/health', amiHealthRouter);
 // -----------------------------
 app.use('/api/admin/audit', auditRouter);
 app.use('/api/admin/tenant', tenantRouter);
-
-// Apply tenant context middleware to API routes
-app.use('/api', attachTenantContext);
 
 // -----------------------------
 // AMI Emulator Endpoints

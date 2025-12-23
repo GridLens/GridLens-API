@@ -1,5 +1,6 @@
 import express from 'express';
 import { pool } from '../db.js';
+import { logAuditEvent } from '../services/audit/auditLogger.js';
 
 const router = express.Router();
 
@@ -142,10 +143,17 @@ router.get('/work-order/:id', async (req, res) => {
 
 router.patch('/work-order/:id', async (req, res) => {
   try {
-    const { status, assignedTo } = req.body;
+    const { status, assignedTo, actorId, actorLabel } = req.body;
+    const tenantId = req.body.tenantId || req.query.tenantId || 'DEMO_TENANT';
     const updates = [];
     const params = [req.params.id];
     let paramIdx = 2;
+    
+    const beforeResult = await pool.query(
+      'SELECT status, assigned_to FROM field_work_orders WHERE id = $1',
+      [req.params.id]
+    );
+    const before = beforeResult.rows[0] || {};
     
     if (status) {
       updates.push(`status = $${paramIdx++}`);
@@ -172,6 +180,30 @@ router.patch('/work-order/:id', async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Work order not found" });
     }
+    
+    const after = result.rows[0];
+    
+    let action = 'WORKORDER_UPDATE';
+    if (status === 'assigned' || assignedTo) action = 'WORKORDER_ASSIGN';
+    else if (status === 'closed') action = 'WORKORDER_CLOSE';
+    else if (status === 'in_progress') action = 'WORKORDER_START';
+    
+    logAuditEvent({
+      tenantId,
+      actorType: actorId ? 'user' : 'api',
+      actorId: actorId || null,
+      actorLabel: actorLabel || null,
+      source: 'api',
+      module: 'FieldOps',
+      action,
+      objectType: 'work_order',
+      objectId: req.params.id,
+      severity: 'INFO',
+      status: 'SUCCESS',
+      message: `Work order ${req.params.id} updated: ${Object.keys(req.body).filter(k => !['tenantId', 'actorId', 'actorLabel'].includes(k)).join(', ')}`,
+      diff: { before: { status: before.status, assignedTo: before.assigned_to }, after: { status: after.status, assignedTo: after.assigned_to } },
+      metadata: { requestId: req.requestId, path: req.path, method: req.method }
+    }).catch(err => console.warn('[FieldOps] Audit log failed:', err.message));
     
     res.json({ ok: true, workOrder: result.rows[0] });
   } catch (err) {

@@ -22,12 +22,14 @@ const DEFAULT_TENANT_CONFIG = {
   tenant_id: 'DEMO_TENANT',
   name: 'Demo Tenant',
   plan: 'enterprise',
+  status: 'ACTIVE',
   environment_mode: 'DEMO',
   features: {
-    meteriq: true,
-    restoreiq: true,
-    fieldops: true,
-    audit_logs: true
+    meteriq_enabled: true,
+    restoreiq_enabled: true,
+    fieldops_enabled: true,
+    admin_enabled: true,
+    audit_logs_enabled: true
   },
   config: {}
 };
@@ -67,7 +69,7 @@ export async function getTenantConfig(tenantId) {
 
   try {
     const result = await pool.query(
-      `SELECT tenant_id, name, plan, environment_mode, features, config 
+      `SELECT tenant_id, name, plan, status, environment_mode, features, config 
        FROM restoreiq.tenants WHERE tenant_id = $1`,
       [tenantId]
     );
@@ -84,6 +86,7 @@ export async function getTenantConfig(tenantId) {
       tenant_id: result.rows[0].tenant_id,
       name: result.rows[0].name,
       plan: result.rows[0].plan || 'standard',
+      status: result.rows[0].status || 'ACTIVE',
       environment_mode: result.rows[0].environment_mode || 'DEMO',
       features: result.rows[0].features || {},
       config: result.rows[0].config || {}
