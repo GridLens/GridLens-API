@@ -148,6 +148,30 @@ When events are created (manual or auto-detected):
 ### Security
 Write operations (POST, PATCH) require API key authentication via a Bearer token in the Authorization header. The API key is stored as `GRIDLENS_API_KEY` in the Replit environment. Read operations are publicly accessible.
 
+### Tenant Environment Mode (LIVE/DEMO)
+The system supports per-tenant environment modes for operational flexibility:
+
+**Architecture:**
+- `services/tenant/tenantConfig.js` - Tenant config service with 60s TTL cache
+- `middleware/tenantContext.js` - Attaches `req.tenant` and `req.isDemoMode` to requests
+- `data/demoDatasets.js` - Deterministic demo datasets for consistent responses
+- PostgreSQL table: `restoreiq.tenants`
+
+**Admin Endpoints:**
+- `GET /api/admin/tenant/config?tenantId=X` - Get tenant configuration
+- `POST /api/admin/tenant/environment` - Toggle environment mode (LIVE/DEMO)
+- `POST /api/admin/tenant/cache/clear` - Clear tenant config cache
+
+**Modes:**
+- **LIVE**: Route handlers use real database data
+- **DEMO**: Route handlers return deterministic demo datasets
+
+**Demo Datasets Available:**
+- System Health (summary, reporting24h, feeders, meters, powerQuality, comms)
+- AMI Health (readPerformance, commsStatus, powerQuality, exceptions, guidance)
+- FieldOps (queue, stats)
+- RestoreIQ (incidents, KPIs)
+
 ## External Dependencies
 
 ### Runtime Dependencies
