@@ -142,6 +142,12 @@ const authMiddleware = (req, res, next) => {
     return next();
   }
 
+  // Allow audit log writes from Retool (trusted frontend)
+  if (req.path === '/api/admin/audit/logs' && req.method === 'POST') {
+    console.log('[Auth] Allowing audit log write from frontend');
+    return next();
+  }
+
   // Require API key for POST, PATCH, DELETE operations
   const authHeader = req.headers.authorization;
   

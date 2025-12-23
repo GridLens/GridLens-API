@@ -6,7 +6,7 @@
  */
 
 import express from "express";
-import { queryAuditLogs, getAuditLogById } from "../../services/audit/auditLogger.js";
+import { queryAuditLogs, getAuditLogById, logAuditEvent } from "../../services/audit/auditLogger.js";
 
 const router = express.Router();
 
@@ -85,6 +85,98 @@ router.get("/logs", async (req, res) => {
     res.status(500).json({
       status: "error",
       error: "Failed to query audit logs"
+    });
+  }
+});
+
+/**
+ * POST /api/admin/audit/logs
+ * Write a new audit log entry (for Retool UI events)
+ * 
+ * Body:
+ *   tenantId (required)
+ *   module - MeterIQ|RestoreIQ|FieldOps|Admin (required)
+ *   action - action name (required)
+ *   objectType - type of object (required)
+ *   objectId - ID of the object
+ *   severity - INFO|WARN|CRITICAL (default: INFO)
+ *   status - SUCCESS|FAILURE|PENDING (default: SUCCESS)
+ *   message - description of the action
+ *   diff - {before, after} object for change tracking
+ *   metadata - additional context (user info, etc.)
+ *   actorType - user|system|workflow|api (default: user)
+ *   actorId - user ID or identifier
+ *   actorLabel - display name of actor
+ *   source - retool|api|workflow (default: retool)
+ */
+router.post("/logs", async (req, res) => {
+  try {
+    const {
+      tenantId,
+      module,
+      action,
+      objectType,
+      objectId,
+      severity,
+      status,
+      message,
+      diff,
+      metadata,
+      actorType,
+      actorId,
+      actorLabel,
+      source
+    } = req.body;
+    
+    if (!tenantId) {
+      return res.status(400).json({
+        status: "error",
+        error: "tenantId is required"
+      });
+    }
+    
+    if (!module || !action || !objectType) {
+      return res.status(400).json({
+        status: "error",
+        error: "module, action, and objectType are required"
+      });
+    }
+    
+    const result = await logAuditEvent({
+      tenantId,
+      module,
+      action,
+      objectType,
+      objectId,
+      severity: severity || 'INFO',
+      status: status || 'SUCCESS',
+      message,
+      diff,
+      metadata,
+      actorType: actorType || 'user',
+      actorId,
+      actorLabel,
+      source: source || 'retool'
+    });
+    
+    if (!result.ok) {
+      return res.status(500).json({
+        status: "error",
+        error: result.error
+      });
+    }
+    
+    res.json({
+      status: "ok",
+      ts: new Date().toISOString(),
+      id: result.id,
+      occurredAt: result.occurredAt
+    });
+  } catch (err) {
+    console.error("[AuditRouter] Write error:", err.message);
+    res.status(500).json({
+      status: "error",
+      error: "Failed to write audit log"
     });
   }
 });
