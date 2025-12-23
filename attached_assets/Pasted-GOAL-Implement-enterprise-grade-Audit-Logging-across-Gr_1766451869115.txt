@@ -1,0 +1,45 @@
+GOAL: Implement enterprise-grade Audit Logging across GridLens API.
+
+CONTEXT:
+- Node/Express backend (gridlens-api)
+- Multi-tenant via tenantId in request body/query
+- Existing Audit Logs page in Retool expects tenant-scoped logs and filters.
+- We need a persistent audit log store and an easy way for all routes to emit audit events.
+
+REQUIREMENTS:
+1) Create Postgres schema restoreiq.audit_logs (or gridlens.audit_logs if we have a better schema already) with:
+   - id UUID (default gen_random_uuid())
+   - occurred_at timestamptz default now()
+   - tenant_id text not null
+   - actor_type text not null (e.g., "user", "system", "workflow")
+   - actor_id text null
+   - actor_label text null
+   - source text not null (e.g., "retool", "api", "workflow")
+   - module text not null (MeterIQ|RestoreIQ|FieldOps|Admin)
+   - action text not null (e.g., "REPORT_EXPORT", "WORKORDER_UPDATE", "ROLE_UPDATE")
+   - object_type text not null (e.g., "replay", "work_order", "role", "tenant")
+   - object_id text null
+   - severity text not null default 'INFO' (INFO|WARN|CRITICAL)
+   - status text not null default 'SUCCESS' (SUCCESS|FAILURE)
+   - message text null
+   - diff jsonb null (before/after)
+   - metadata jsonb null (request ids, user agent, ip)
+2) Add an audit logger service:
+   - services/audit/auditLogger.js with function logAuditEvent(event)
+   - event validation + defaults
+3) Add middleware to capture request metadata:
+   - request id, IP, user agent, route, method
+4) Instrument these actions minimally (at least):
+   - RestoreIQ: rank fault zones, generate replay, export report, download report
+   - FieldOps: create/update work order, assign crew, close work order
+   - Admin: tenant create/update/status, user create/update, role/permission changes
+5) Add REST endpoints:
+   - GET /api/admin/audit/logs?tenantId=...&from=...&to=...&severity=...&module=...&action=...&search=...
+   - GET /api/admin/audit/logs/:id?tenantId=...
+6) Ensure non-blocking behavior:
+   - if audit write fails, do NOT break primary operation; log warning
+7) Return consistent JSON response shapes.
+
+DELIVERABLE:
+- Migration SQL + code changes + routes mounted + example curl.
+- Keep it production-safe. No mock data.

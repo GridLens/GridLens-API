@@ -20,6 +20,7 @@ import outagesRouter from "./routes/outagesRouter.js";
 import fieldOpsRouter from "./routes/fieldOpsRouter.js";
 import derivedMetricsRouter from "./routes/derivedMetricsRouter.js";
 import restoreiqRouter from "./routes/restoreiq/restoreiqRouter.js";
+import auditRouter from "./routes/admin/auditRouter.js";
 import { 
   buildAndEnqueueReadBatches, 
   createEvent, 
@@ -196,6 +197,11 @@ app.use('/reports', express.static(path.join(__dirname, 'reports')));
 // -----------------------------
 app.use('/api/ami/system/health', amiSystemHealthRouter);
 app.use('/api/ami/health', amiHealthRouter);
+
+// -----------------------------
+// Admin API (Audit Logs)
+// -----------------------------
+app.use('/api/admin/audit', auditRouter);
 
 // -----------------------------
 // AMI Emulator Endpoints
@@ -2709,5 +2715,6 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`  - /api/ami/system/health/* (MeterIQ System Health)`);
   console.log(`  - /api/ami/health/* (AMI Health)`);
   console.log(`  - /api/v1/restoreiq/* (RestoreIQ Dashboard)`);
+  console.log(`  - /api/admin/audit/* (Audit Logs)`);
   console.log(`  - /api/kpi/* (Legacy KPI endpoints)`);
 });

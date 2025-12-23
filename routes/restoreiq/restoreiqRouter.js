@@ -16,6 +16,7 @@ import crypto from "crypto";
 import { rankFaultZones, getRankingByRunId } from "../../services/restoreiq/faultZoneRanking.js";
 import { generateAfterActionReplay, getReplayById, getReplaysByOutage } from "../../services/restoreiq/outageReplayGenerator.js";
 import { exportAfterActionReport, getReportBlobRef, getReportStream, getStorageProviderInfo } from "../../services/restoreiq/reportExporter.js";
+import auditLogger from "../../services/audit/auditLogger.js";
 
 const router = express.Router();
 
@@ -80,6 +81,12 @@ router.post('/fault-zones/rank', async (req, res) => {
       tenantId,
       outageId,
       createdBy: createdBy || 'api'
+    });
+    
+    auditLogger.info(tenantId, 'RestoreIQ', 'FAULT_ZONE_RANK', 'fault_zone', {
+      objectId: result.run_id,
+      message: `Ranked ${result.zones?.length || 0} fault zones for outage ${outageId}`,
+      metadata: auditLogger.createRequestMetadata(req)
     });
     
     res.json(result);
@@ -162,6 +169,12 @@ router.post('/replays/after-action/generate', async (req, res) => {
       tenantId,
       outageId,
       generatedBy: generatedBy || 'api'
+    });
+    
+    auditLogger.info(tenantId, 'RestoreIQ', 'REPLAY_GENERATE', 'replay', {
+      objectId: result.replay_id,
+      message: `Generated after-action replay for outage ${outageId}`,
+      metadata: auditLogger.createRequestMetadata(req)
     });
     
     res.json(result);
@@ -286,6 +299,12 @@ router.post('/reports/after-action/export', async (req, res) => {
       tenantId,
       replayId,
       outageId
+    });
+    
+    auditLogger.info(tenantId, 'RestoreIQ', 'REPORT_EXPORT', 'report', {
+      objectId: replayId,
+      message: `Exported after-action report for replay ${replayId}`,
+      metadata: auditLogger.createRequestMetadata(req)
     });
     
     const downloadToken = generateDownloadToken(replayId, tenantId);
