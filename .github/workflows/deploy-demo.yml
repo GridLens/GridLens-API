@@ -20,10 +20,6 @@ jobs:
   deploy-demo:
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: infra/envs/demo
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -43,12 +39,15 @@ jobs:
           terraform_version: 1.9.5
 
       - name: Terraform init
+        working-directory: infra/envs/demo
         run: terraform init
 
       - name: Terraform plan
         if: github.event.inputs.action == 'plan'
+        working-directory: infra/envs/demo
         run: terraform plan -input=false
 
       - name: Terraform apply
         if: github.event.inputs.action == 'apply'
+        working-directory: infra/envs/demo
         run: terraform apply -input=false -auto-approve
