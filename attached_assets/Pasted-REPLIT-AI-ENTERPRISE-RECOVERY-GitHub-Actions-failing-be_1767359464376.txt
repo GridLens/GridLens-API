@@ -1,0 +1,86 @@
+REPLIT AI — ENTERPRISE RECOVERY: GitHub Actions failing because infra/envs/demo missing in GitHub.
+
+Latest error in GitHub Actions:
+An error occurred trying to start process '/usr/bin/bash' with working directory
+'/home/runner/work/GridLens-API/GridLens-API/infra/envs/demo'. No such file or directory
+
+FACTS:
+- Repo: https://github.com/GridLens/GridLens-API.git
+- Branch: main
+- Workflow now references working-directory: infra/envs/demo (correct).
+- The problem is infra/ does NOT exist in GitHub main.
+- Local cleanup removed infra/ because it was untracked at the time.
+
+GOAL:
+Restore infra/ from authoritative source and push it to GitHub so Actions can find infra/envs/demo.
+
+HARD RULES:
+1) Do NOT change Terraform code inside infra/.
+2) Do NOT change directory structure.
+3) Do NOT delete app code.
+4) Do NOT paste secrets.
+5) Show command outputs for every checkpoint.
+
+TASKS (DO IN ORDER):
+
+A) Confirm current state (show outputs):
+   pwd
+   git status
+   git remote -v
+   ls -la infra || true
+   ls -la .github/workflows || true
+
+B) Recover infra/ using the BEST available source in this order:
+
+   SOURCE 1: gitsafe-backup (preferred)
+   1) Fetch all backup refs:
+      git fetch gitsafe-backup --prune
+
+   2) Find which backup branch contains infra/envs/demo/main.tf:
+      for b in $(git for-each-ref --format='%(refname:short)' refs/remotes/gitsafe-backup/); do
+        git ls-tree -r --name-only "$b" | grep -q '^infra/envs/demo/main.tf$' && echo "FOUND in $b";
+      done
+
+   3) If FOUND, restore ONLY infra/ from that exact branch:
+      git checkout main
+      git checkout <FOUND_BRANCH> -- infra
+
+   SOURCE 2: Replit filesystem (if SOURCE 1 fails)
+   If gitsafe-backup does not contain infra/, search local filesystem:
+      find . -maxdepth 3 -type d -name infra -print
+      find / -maxdepth 4 -type d -name infra 2>/dev/null | head
+   If infra exists elsewhere in this workspace, copy it into repo root as ./infra (preserving structure).
+
+C) Validate recovered infra (must show outputs):
+   ls -la infra
+   ls -la infra/envs
+   ls -la infra/envs/demo
+   test -f infra/envs/demo/main.tf && echo "OK: demo main.tf exists" || echo "FAIL: missing demo main.tf"
+
+D) Push infra to GitHub in an enterprise-safe way:
+   1) Create a dedicated branch:
+      git checkout -b add-terraform-infra
+
+   2) Stage ONLY infra/ (no other changes):
+      git add infra/
+      git status
+
+   3) Commit:
+      git commit -m "Add Terraform infra (envs + modules)"
+
+   4) Push branch:
+      git push -u origin add-terraform-infra
+
+E) Create PR instructions (since you can’t merge yourself):
+   Provide exact GitHub UI steps to open PR:
+   base=main, compare=add-terraform-infra, then merge.
+
+F) Post-merge verification checklist:
+   - Confirm infra/envs/demo exists in GitHub
+   - Re-run Actions → deploy-demo → action=plan
+   - Expected: no more "No such file or directory" for infra/envs/demo
+
+OUTPUT FORMAT:
+- Sectioned output A-F
+- Include all command outputs
+- End with: "Infra restored and pushed; after PR merge, Actions will find infra/envs/demo."
