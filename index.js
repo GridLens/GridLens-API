@@ -51,6 +51,26 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
+// ==============================================
+// HEALTH & BUILD ENDPOINTS (must be FIRST routes)
+// Used by Azure Front Door health probes and
+// deployment verification - DO NOT MOVE!
+// ==============================================
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
+app.get("/__build", (req, res) => {
+  res.status(200).json({
+    ok: true,
+    site: process.env.WEBSITE_SITE_NAME || "local",
+    instance: process.env.WEBSITE_INSTANCE_ID || "local",
+    commit: process.env.COMMIT_SHA || "unknown",
+    ts: new Date().toISOString()
+  });
+});
+
+
 // ----------------------
 // Core Middleware Setup
 // ----------------------
@@ -1090,14 +1110,6 @@ function computeMeterHealthIndex(meter, reads = [], events = []) {
 
   return { score, band, issues };
 }
-
-// -------------
-// Health endpoint - redirect to Smart MeterIQ dashboard
-// -------------
-app.get("/health", (req, res) => {
-  res.redirect("/dashboard.html");
-});
-
 app.get("/api/health", (req, res) => {
   console.log("[API] GET /api/health");
   res.status(200).json({ status: "ok" });

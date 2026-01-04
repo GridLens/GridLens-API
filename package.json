@@ -6,7 +6,8 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "dev:api": "PORT=5050 node index.js"
   },
   "dependencies": {
     "@azure/storage-blob": "^12.29.1",
