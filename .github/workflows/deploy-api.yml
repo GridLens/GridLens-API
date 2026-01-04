@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 env:
-  AZURE_WEBAPP_NAME: gridlens-demo-api-btadccbwhzfndcbw
+  AZURE_WEBAPP_NAME: gridlens-demo-api
   NODE_VERSION: '20.x'
 
 jobs:
@@ -60,11 +60,13 @@ jobs:
 
       - name: Post-deploy health check
         run: |
-          echo "Testing /health endpoint..."
-          curl -fsS https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health
+          # Get actual hostname from Azure
+          HOSTNAME=$(az webapp show --name ${{ env.AZURE_WEBAPP_NAME }} --resource-group gridlens-demo-app_group --query defaultHostName -o tsv)
+          echo "Testing https://$HOSTNAME/health ..."
+          curl -fsS "https://$HOSTNAME/health"
           echo ""
-          echo "Testing /__build endpoint..."
-          curl -fsS https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/__build
+          echo "Testing https://$HOSTNAME/__build ..."
+          curl -fsS "https://$HOSTNAME/__build"
           echo ""
           echo "✅ Health checks passed!"
 
