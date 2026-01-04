@@ -99,8 +99,46 @@ jobs:
           curl -i --max-time 10 "$BUILD_URL" || true
           exit 1
 
-      - name: Test custom domain health
-        continue-on-error: true
+      - name: Post-deploy warmup + EDGE health gate (Front Door custom domain)
+        shell: bash
         run: |
-          echo "Testing custom domain /health..."
-          curl -fsS https://api.gridlensenergy.com/health || echo "Custom domain check failed (may need DNS propagation)"
+          set -euo pipefail
+
+          EDGE_HEALTH_URL="${EDGE_HEALTH_URL:-https://api.gridlensenergy.com/health}"
+          EDGE_BUILD_URL="${EDGE_BUILD_URL:-https://api.gridlensenergy.com/__build}"
+
+          echo "Edge Health URL: $EDGE_HEALTH_URL"
+          echo "Edge Build URL:  $EDGE_BUILD_URL"
+
+          ATTEMPTS=30
+          SLEEP_SECONDS=10
+
+          for i in $(seq 1 $ATTEMPTS); do
+            echo "Attempt $i/$ATTEMPTS..."
+
+            if curl -fsS --max-time 10 "$EDGE_HEALTH_URL" >/tmp/edge_health.json 2>/tmp/edge_health.err; then
+              echo "✅ EDGE /health OK"
+              cat /tmp/edge_health.json || true
+
+              if curl -fsS --max-time 10 "$EDGE_BUILD_URL" >/tmp/edge_build.json 2>/tmp/edge_build.err; then
+                echo "✅ EDGE /__build OK"
+                cat /tmp/edge_build.json || true
+                exit 0
+              else
+                echo "⚠️ EDGE /__build not ready yet"
+                cat /tmp/edge_build.err || true
+              fi
+            else
+              echo "⚠️ EDGE /health not ready yet"
+              cat /tmp/edge_health.err || true
+            fi
+
+            sleep "$SLEEP_SECONDS"
+          done
+
+          echo "❌ EDGE health gate failed after $ATTEMPTS attempts."
+          echo "Last EDGE /health response:"
+          curl -i --max-time 10 "$EDGE_HEALTH_URL" || true
+          echo "Last EDGE /__build response:"
+          curl -i --max-time 10 "$EDGE_BUILD_URL" || true
+          exit 1
