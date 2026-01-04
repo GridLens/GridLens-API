@@ -70,6 +70,29 @@ app.get("/__build", (req, res) => {
   });
 });
 
+// Deep readiness check - validates database connectivity
+app.get("/ready", async (req, res) => {
+  const checks = { db: "unknown", redis: "unknown" };
+
+  // Database check
+  try {
+    await pool.query("SELECT 1");
+    checks.db = "ok";
+  } catch (e) {
+    console.error("[/ready] DB check failed:", e.message);
+    checks.db = "fail";
+  }
+
+  // Redis check - skipped as we use BullMQ which manages its own connection
+  checks.redis = "skipped";
+
+  const ok = Object.values(checks).every(v => v === "ok" || v === "skipped");
+
+  if (!ok) return res.status(503).json({ ok: false, checks });
+  return res.status(200).json({ ok: true, checks });
+});
+
+
 
 // ----------------------
 // Core Middleware Setup

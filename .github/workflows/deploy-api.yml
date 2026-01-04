@@ -142,3 +142,59 @@ jobs:
           echo "Last EDGE /__build response:"
           curl -i --max-time 10 "$EDGE_BUILD_URL" || true
           exit 1
+
+      - name: Post-deploy warmup + ORIGIN readiness gate (/ready)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          READY_URL="${READY_URL:-https://gridlens-demo-api-btadccbwhzfndcbw.centralus-01.azurewebsites.net/ready}"
+          echo "Origin Ready URL: $READY_URL"
+
+          ATTEMPTS=30
+          SLEEP_SECONDS=10
+
+          for i in $(seq 1 $ATTEMPTS); do
+            echo "Attempt $i/$ATTEMPTS..."
+            if curl -fsS --max-time 10 "$READY_URL" >/tmp/ready.json 2>/tmp/ready.err; then
+              echo "✅ ORIGIN /ready OK"
+              cat /tmp/ready.json || true
+              exit 0
+            else
+              echo "⚠️ ORIGIN /ready not ready yet"
+              cat /tmp/ready.err || true
+            fi
+            sleep "$SLEEP_SECONDS"
+          done
+
+          echo "❌ ORIGIN readiness gate failed after $ATTEMPTS attempts."
+          curl -i --max-time 10 "$READY_URL" || true
+          exit 1
+
+      - name: Post-deploy warmup + EDGE readiness gate (/ready)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          EDGE_READY_URL="${EDGE_READY_URL:-https://api.gridlensenergy.com/ready}"
+          echo "Edge Ready URL: $EDGE_READY_URL"
+
+          ATTEMPTS=30
+          SLEEP_SECONDS=10
+
+          for i in $(seq 1 $ATTEMPTS); do
+            echo "Attempt $i/$ATTEMPTS..."
+            if curl -fsS --max-time 10 "$EDGE_READY_URL" >/tmp/edge_ready.json 2>/tmp/edge_ready.err; then
+              echo "✅ EDGE /ready OK"
+              cat /tmp/edge_ready.json || true
+              exit 0
+            else
+              echo "⚠️ EDGE /ready not ready yet"
+              cat /tmp/edge_ready.err || true
+            fi
+            sleep "$SLEEP_SECONDS"
+          done
+
+          echo "❌ EDGE readiness gate failed after $ATTEMPTS attempts."
+          curl -i --max-time 10 "$EDGE_READY_URL" || true
+          exit 1
