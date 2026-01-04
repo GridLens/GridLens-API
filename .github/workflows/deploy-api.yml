@@ -55,20 +55,49 @@ jobs:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
           package: .
 
-      - name: Wait for deployment to stabilize
-        run: sleep 30
-
-      - name: Post-deploy health check
+      - name: Post-deploy warmup + health gate
+        shell: bash
         run: |
-          # Get actual hostname from Azure
-          HOSTNAME=$(az webapp show --name ${{ env.AZURE_WEBAPP_NAME }} --resource-group gridlens-demo-app_group --query defaultHostName -o tsv)
-          echo "Testing https://$HOSTNAME/health ..."
-          curl -fsS "https://$HOSTNAME/health"
-          echo ""
-          echo "Testing https://$HOSTNAME/__build ..."
-          curl -fsS "https://$HOSTNAME/__build"
-          echo ""
-          echo "✅ Health checks passed!"
+          set -euo pipefail
+
+          HEALTH_URL="${HEALTH_URL:-https://gridlens-demo-api-btadccbwhzfndcbw.centralus-01.azurewebsites.net/health}"
+          BUILD_URL="${BUILD_URL:-https://gridlens-demo-api-btadccbwhzfndcbw.centralus-01.azurewebsites.net/__build}"
+
+          echo "Health URL: $HEALTH_URL"
+          echo "Build URL:  $BUILD_URL"
+
+          ATTEMPTS=30
+          SLEEP_SECONDS=10
+
+          for i in $(seq 1 $ATTEMPTS); do
+            echo "Attempt $i/$ATTEMPTS..."
+
+            if curl -fsS --max-time 10 "$HEALTH_URL" >/tmp/health.json 2>/tmp/health.err; then
+              echo "✅ /health OK"
+              cat /tmp/health.json || true
+
+              if curl -fsS --max-time 10 "$BUILD_URL" >/tmp/build.json 2>/tmp/build.err; then
+                echo "✅ /__build OK"
+                cat /tmp/build.json || true
+                exit 0
+              else
+                echo "⚠️ /__build not ready yet"
+                cat /tmp/build.err || true
+              fi
+            else
+              echo "⚠️ /health not ready yet"
+              cat /tmp/health.err || true
+            fi
+
+            sleep "$SLEEP_SECONDS"
+          done
+
+          echo "❌ Health gate failed after $ATTEMPTS attempts."
+          echo "Last /health response:"
+          curl -i --max-time 10 "$HEALTH_URL" || true
+          echo "Last /__build response:"
+          curl -i --max-time 10 "$BUILD_URL" || true
+          exit 1
 
       - name: Test custom domain health
         continue-on-error: true
