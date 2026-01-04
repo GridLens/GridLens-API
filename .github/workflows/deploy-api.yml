@@ -46,7 +46,7 @@ jobs:
         run: |
           az webapp config appsettings set \
             --name ${{ env.AZURE_WEBAPP_NAME }} \
-            --resource-group gridlens-demo-rg \
+            --resource-group gridlens-demo-app_group \
             --settings COMMIT_SHA=${{ github.sha }}
 
       - name: Deploy to Azure Web App
